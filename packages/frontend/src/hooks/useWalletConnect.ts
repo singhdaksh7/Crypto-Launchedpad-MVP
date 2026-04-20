@@ -3,6 +3,12 @@ import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
 
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
 export const useWalletConnect = () => {
   const { setAccount, setSigner, setProvider, setChainId, setIsConnecting } = useWeb3Store();
   const [error, setError] = useState<string | null>(null);
