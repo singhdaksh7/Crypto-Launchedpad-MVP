@@ -1,5 +1,12 @@
 export const LAUNCHPAD_ABI = [
   {
+    inputs: [],
+    name: "presaleCounter",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [
       { internalType: "address", name: "tokenAddress", type: "address" },
       { internalType: "uint256", name: "tokenPrice", type: "uint256" },
@@ -59,6 +66,34 @@ export const LAUNCHPAD_ABI = [
       },
     ],
     stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "presaleId", type: "uint256" },
+      { internalType: "address", name: "user", type: "address" },
+    ],
+    name: "getUserContribution",
+    outputs: [
+      {
+        components: [
+          { internalType: "uint256", name: "amount", type: "uint256" },
+          { internalType: "uint256", name: "tokenAmount", type: "uint256" },
+          { internalType: "bool", name: "claimed", type: "bool" },
+        ],
+        internalType: "struct Launchpad.UserContribution",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "presaleId", type: "uint256" }],
+    name: "refundContribution",
+    outputs: [],
+    stateMutability: "nonpayable",
     type: "function",
   },
 ];
