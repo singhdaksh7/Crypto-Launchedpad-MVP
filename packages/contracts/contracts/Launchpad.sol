@@ -60,6 +60,8 @@ contract Launchpad is Ownable, ReentrancyGuard {
     event TokensClaimed(uint256 indexed presaleId, address indexed buyer, uint256 amount);
     event FundsWithdrawn(uint256 indexed presaleId, uint256 amount);
     event PresaleFunded(uint256 indexed presaleId, address indexed funder, uint256 amount);
+    event RefundClaimed(uint256 indexed presaleId, address indexed buyer, uint256 amount);
+    event OwnerTokensRecovered(uint256 indexed presaleId, address indexed owner, uint256 amount);
 
     constructor() Ownable() {
         platformFee = 250; // 2.5%
@@ -197,10 +199,40 @@ contract Launchpad is Ownable, ReentrancyGuard {
         require(userContrib.amount > 0, "No contribution");
         require(!userContrib.claimed, "Already claimed");
 
+        uint256 amount = userContrib.amount;
         userContrib.claimed = true;
 
-        (bool success, ) = payable(msg.sender).call{value: userContrib.amount}("");
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
         require(success, "Refund failed");
+
+        emit RefundClaimed(presaleId, msg.sender, amount);
+    }
+
+    /// @notice Recover seller-deposited tokens when a presale failed (softcap not
+    ///         reached). Without this, tokens funded via {fundPresale} would be
+    ///         stranded in this contract forever — buyers get BNB refunds via
+    ///         {refundContribution}, but the seller's tokens have no return path.
+    /// @dev Idempotent: zeroes out the funded balance on first call so a second
+    ///      call reverts with "Nothing to recover".
+    function recoverFundedTokensOnFailure(uint256 presaleId) public nonReentrant {
+        PresaleConfig storage config = presales[presaleId];
+        require(config.tokenAddress != address(0), "Presale does not exist");
+        require(msg.sender == config.owner, "Only presale owner");
+        require(block.timestamp > config.endTime, "Presale not ended");
+        require(config.totalRaised < config.softcap, "Softcap reached");
+
+        uint256 amount = presaleTokensFunded[presaleId];
+        require(amount > 0, "Nothing to recover");
+
+        presaleTokensFunded[presaleId] = 0;
+
+        IERC20 token = IERC20(config.tokenAddress);
+        require(
+            token.transfer(msg.sender, amount),
+            "Token transfer failed"
+        );
+
+        emit OwnerTokensRecovered(presaleId, msg.sender, amount);
     }
 
     /// @notice Deposit tokens into the presale so buyers can later claim.
