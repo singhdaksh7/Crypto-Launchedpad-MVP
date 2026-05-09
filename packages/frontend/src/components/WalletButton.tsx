@@ -3,12 +3,15 @@ import { useWeb3Store } from '@/store';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { formatAddress, getChainId } from '@/lib/web3';
 import { addressUrl, networkLabel } from '@/lib/links';
+import { getWalletMeta, type WalletId } from '@/lib/wallets';
 import { Icon } from './ui/Icon';
+import { WalletPicker } from './WalletPicker';
 
 export const WalletButton: React.FC = () => {
-  const { account, chainId, isConnecting } = useWeb3Store();
+  const { account, chainId, isConnecting, lastWalletId } = useWeb3Store();
   const { connectWallet, disconnectWallet, error } = useWalletConnect();
   const [open, setOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -31,32 +34,50 @@ export const WalletButton: React.FC = () => {
     }
   };
 
+  const handleConnect = async (id: WalletId) => {
+    await connectWallet(id);
+    // Close the picker only on success — leave it open so the user can read
+    // the inline error and try again.
+    if (useWeb3Store.getState().account) {
+      setPickerOpen(false);
+    }
+  };
+
   if (!account) {
     return (
-      <button
-        onClick={connectWallet}
-        disabled={isConnecting}
-        className="btn-primary"
-        title={error || undefined}
-      >
-        {isConnecting ? (
-          <>
-            <Icon name="spinner" size={14} />
-            <span>Connecting…</span>
-          </>
-        ) : (
-          <>
-            <Icon name="wallet" size={14} />
-            <span className="hidden sm:inline">Connect Wallet</span>
-            <span className="sm:hidden">Connect</span>
-          </>
-        )}
-      </button>
+      <>
+        <button
+          onClick={() => setPickerOpen(true)}
+          disabled={isConnecting}
+          className="btn-primary"
+          title={error || undefined}
+        >
+          {isConnecting ? (
+            <>
+              <Icon name="spinner" size={14} />
+              <span>Connecting…</span>
+            </>
+          ) : (
+            <>
+              <Icon name="wallet" size={14} />
+              <span className="hidden sm:inline">Connect Wallet</span>
+              <span className="sm:hidden">Connect</span>
+            </>
+          )}
+        </button>
+        <WalletPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onConnect={handleConnect}
+          error={error}
+        />
+      </>
     );
   }
 
   const required = getChainId();
   const wrongNetwork = chainId !== null && chainId !== required;
+  const walletMeta = lastWalletId ? getWalletMeta(lastWalletId) : null;
 
   return (
     <div ref={ref} className="relative">
@@ -68,6 +89,10 @@ export const WalletButton: React.FC = () => {
       >
         {wrongNetwork ? (
           <Icon name="alert" size={14} />
+        ) : walletMeta ? (
+          <span className="inline-flex items-center justify-center w-4 h-4 [&>svg]:w-4 [&>svg]:h-4">
+            {walletMeta.icon}
+          </span>
         ) : (
           <span className="pulse-dot" />
         )}
@@ -89,7 +114,9 @@ export const WalletButton: React.FC = () => {
               </p>
             </div>
             <div className="px-4 py-3 border-b border-white/5">
-              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Account</p>
+              <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                Account{walletMeta ? ` · ${walletMeta.label}` : ''}
+              </p>
               <p className="text-sm font-mono break-all">{account}</p>
             </div>
             <div className="py-1">

@@ -2,12 +2,27 @@ import { useCallback, useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
+import { WALLETS, getWalletMeta, type WalletId } from '@/lib/wallets';
+import { getWalletConnectProvider } from '@/lib/walletConnect';
+
+const STORAGE_KEY = 'lastWalletId';
 
 declare global {
   interface Window {
     ethereum?: any;
   }
 }
+
+const friendlyConnectError = (err: any, fallback: string): string => {
+  // EIP-1193 user rejection.
+  if (err?.code === 4001 || err?.code === 'ACTION_REJECTED') {
+    return 'Connection rejected.';
+  }
+  if (err?.code === -32002) {
+    return 'A connection request is already pending in your wallet.';
+  }
+  return err?.shortMessage || err?.message || fallback;
+};
 
 export const useWalletConnect = () => {
   const {
@@ -16,117 +31,173 @@ export const useWalletConnect = () => {
     setProvider,
     setChainId,
     setIsConnecting,
+    setLastWalletId,
+    rawProvider,
     reset,
   } = useWeb3Store();
   const [error, setError] = useState<string | null>(null);
 
-  const hydrate = useCallback(
-    async (selected?: string) => {
-      if (!window.ethereum) return;
-      const provider = new ethers.BrowserProvider(window.ethereum);
+  const hydrateFromProvider = useCallback(
+    async (raw: any, walletId: WalletId, selected?: string) => {
+      const provider = new ethers.BrowserProvider(raw);
       const network = await provider.getNetwork();
       const signer = await provider.getSigner();
       const account = selected || (await signer.getAddress());
 
       setAccount(account);
       setSigner(signer);
-      setProvider(provider);
+      setProvider(provider, raw);
       setChainId(Number(network.chainId));
+      setLastWalletId(walletId);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, walletId);
+      }
     },
-    [setAccount, setChainId, setProvider, setSigner],
+    [setAccount, setChainId, setLastWalletId, setProvider, setSigner],
   );
 
-  const connectWallet = useCallback(async () => {
+  const switchToRequiredChain = useCallback(async (raw: any) => {
+    const required = getChainId();
+    const probe = new ethers.BrowserProvider(raw);
+    const current = Number((await probe.getNetwork()).chainId);
+    if (current === required) return;
     try {
-      setIsConnecting(true);
-      setError(null);
-
-      if (!window.ethereum) {
-        throw new Error(
-          'No Web3 wallet detected. Install MetaMask to continue.',
-        );
-      }
-
-      const accounts: string[] = await window.ethereum.request({
-        method: 'eth_requestAccounts',
+      await raw.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${required.toString(16)}` }],
       });
-
-      const required = getChainId();
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const current = Number((await provider.getNetwork()).chainId);
-
-      if (current !== required) {
-        try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: `0x${required.toString(16)}` }],
-          });
-        } catch (switchError: any) {
-          if (switchError.code === 4902) {
-            throw new Error('Please add BSC Testnet to your wallet first.');
-          }
-          // If user rejected, continue connecting; banner will warn.
-          if (switchError.code !== 4001) throw switchError;
-        }
+    } catch (switchError: any) {
+      if (switchError?.code === 4902) {
+        throw new Error('Please add BSC Testnet to your wallet first.');
       }
-
-      await hydrate(accounts[0]);
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect wallet');
-    } finally {
-      setIsConnecting(false);
+      // 4001 = user rejected the switch — fall through; banner will warn.
+      if (switchError?.code !== 4001) throw switchError;
     }
-  }, [hydrate, setIsConnecting]);
+  }, []);
 
-  const disconnectWallet = useCallback(() => {
+  const connectWallet = useCallback(
+    async (walletId: WalletId) => {
+      try {
+        setIsConnecting(true);
+        setError(null);
+
+        let raw: any;
+        if (walletId === 'walletconnect') {
+          const wc = await getWalletConnectProvider();
+          if (!wc.session) {
+            await wc.connect();
+          } else if (!wc.accounts || wc.accounts.length === 0) {
+            await wc.enable();
+          }
+          raw = wc;
+        } else {
+          const meta = getWalletMeta(walletId);
+          const inj = meta?.detect();
+          if (!inj) {
+            throw new Error(
+              `${meta?.label ?? 'Wallet'} not detected. Install the extension or use WalletConnect.`,
+            );
+          }
+          await inj.request({ method: 'eth_requestAccounts' });
+          raw = inj;
+        }
+
+        await switchToRequiredChain(raw);
+        await hydrateFromProvider(raw, walletId);
+      } catch (err: any) {
+        setError(friendlyConnectError(err, 'Failed to connect wallet'));
+      } finally {
+        setIsConnecting(false);
+      }
+    },
+    [hydrateFromProvider, setIsConnecting, switchToRequiredChain],
+  );
+
+  const disconnectWallet = useCallback(async () => {
+    const walletId = useWeb3Store.getState().lastWalletId;
+    if (walletId === 'walletconnect') {
+      try {
+        const wc = await getWalletConnectProvider();
+        if (wc.session) await wc.disconnect();
+      } catch {
+        /* If WC tear-down fails, still clear local state. */
+      }
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY);
+    }
     reset();
   }, [reset]);
 
-  // Auto-reconnect if previously connected.
+  // Auto-reconnect on mount, branching on the persisted wallet id.
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     let cancelled = false;
-    const check = async () => {
-      if (typeof window === 'undefined' || !window.ethereum) return;
+    const lastId = localStorage.getItem(STORAGE_KEY) as WalletId | null;
+    if (!lastId) return;
+
+    const reconnect = async () => {
       try {
-        const accounts: string[] = await window.ethereum.request({
-          method: 'eth_accounts',
-        });
+        if (lastId === 'walletconnect') {
+          const wc = await getWalletConnectProvider();
+          if (wc.session && wc.accounts && wc.accounts.length > 0) {
+            if (!cancelled) await hydrateFromProvider(wc, 'walletconnect', wc.accounts[0]);
+          }
+          return;
+        }
+        const meta = getWalletMeta(lastId);
+        const inj = meta?.detect();
+        if (!inj) return;
+        const accounts: string[] = await inj.request({ method: 'eth_accounts' });
         if (!cancelled && accounts.length > 0) {
-          await hydrate(accounts[0]);
+          await hydrateFromProvider(inj, lastId, accounts[0]);
         }
       } catch {
-        /* silent */
+        /* silent — user can reconnect manually */
       }
     };
-    check();
+    reconnect();
     return () => {
       cancelled = true;
     };
-  }, [hydrate]);
+  }, [hydrateFromProvider]);
 
-  // React to wallet account / chain changes.
+  // Wire account/chain/disconnect events to whichever provider is active.
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.ethereum) return;
+    if (!rawProvider) return;
 
     const onAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
+      if (!accounts || accounts.length === 0) {
+        if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY);
         reset();
-      } else {
-        hydrate(accounts[0]);
+        return;
+      }
+      const lastId =
+        typeof window !== 'undefined'
+          ? (localStorage.getItem(STORAGE_KEY) as WalletId | null)
+          : null;
+      if (lastId) {
+        void hydrateFromProvider(rawProvider, lastId, accounts[0]);
       }
     };
     const onChainChanged = () => {
-      // Easiest correct path: reload, fresh provider/network.
+      // Reload is the simplest correct path — fresh provider/network/signer.
       window.location.reload();
     };
-
-    window.ethereum.on?.('accountsChanged', onAccountsChanged);
-    window.ethereum.on?.('chainChanged', onChainChanged);
-    return () => {
-      window.ethereum?.removeListener?.('accountsChanged', onAccountsChanged);
-      window.ethereum?.removeListener?.('chainChanged', onChainChanged);
+    const onDisconnect = () => {
+      if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY);
+      reset();
     };
-  }, [hydrate, reset]);
 
-  return { connectWallet, disconnectWallet, error };
+    rawProvider.on?.('accountsChanged', onAccountsChanged);
+    rawProvider.on?.('chainChanged', onChainChanged);
+    rawProvider.on?.('disconnect', onDisconnect);
+    return () => {
+      rawProvider.removeListener?.('accountsChanged', onAccountsChanged);
+      rawProvider.removeListener?.('chainChanged', onChainChanged);
+      rawProvider.removeListener?.('disconnect', onDisconnect);
+    };
+  }, [rawProvider, reset, hydrateFromProvider]);
+
+  return { connectWallet, disconnectWallet, error, wallets: WALLETS };
 };
