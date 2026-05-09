@@ -10,6 +10,7 @@ import { txUrl } from '@/lib/links';
 import { Icon } from '@/components/ui/Icon';
 import { Alert } from '@/components/ui/Alert';
 import { AddressLink } from '@/components/ui/AddressLink';
+import { AccessGate } from '@/components/AccessGate';
 
 interface FormData {
   name: string;
@@ -93,6 +94,7 @@ export default function CreateToken() {
           </Alert>
         )}
 
+        <AccessGate>
         {!account ? (
           <div className="card text-center py-16">
             <div className="mx-auto h-12 w-12 rounded-full bg-white/5 flex items-center justify-center text-gray-300 mb-3">
@@ -166,6 +168,7 @@ export default function CreateToken() {
             </button>
           </form>
         )}
+        </AccessGate>
 
         {result && (
           <div className="card mt-6 border-emerald-500/30 bg-emerald-500/[0.04] animate-slide-up">
