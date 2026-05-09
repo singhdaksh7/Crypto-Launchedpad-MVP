@@ -43,6 +43,7 @@ export default function PresaleDetail() {
   const [contribution, setContribution] = useState<UserContribution | null>(null);
   const [tokenName, setTokenName] = useState('');
   const [tokenSymbol, setTokenSymbol] = useState('');
+  const [tokenLogo, setTokenLogo] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [txLoading, setTxLoading] = useState(false);
@@ -77,10 +78,18 @@ export default function PresaleDetail() {
       });
 
       try {
-        const token = new ethers.Contract(details.tokenAddress, ERC20_ABI, provider);
+        const token = new ethers.Contract(d.tokenAddress, ERC20_ABI, provider);
         const [name, symbol] = await Promise.all([token.name(), token.symbol()]);
         setTokenName(name);
         setTokenSymbol(symbol);
+        // logoURI is only present on tokens deployed via the launchpad factory; older
+        // tokens or third-party ERC20s won't have it, so swallow the call independently.
+        try {
+          const logo: string = await token.logoURI();
+          setTokenLogo(logo || '');
+        } catch {
+          setTokenLogo('');
+        }
       } catch {
         /* token may not be ERC20 metadata-compliant */
       }
@@ -294,17 +303,34 @@ export default function PresaleDetail() {
             {/* Header */}
             <div className="card">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
-                <div className="min-w-0">
-                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-                    {tokenName || 'Unknown Token'}
-                    {tokenSymbol && (
-                      <span className="text-gray-500 text-base sm:text-lg ml-2 font-normal">
-                        {tokenSymbol}
-                      </span>
-                    )}
-                  </h1>
-                  <div className="mt-1.5">
-                    <AddressLink address={presale.tokenAddress} variant="token" />
+                <div className="flex items-start gap-3 min-w-0">
+                  {tokenLogo && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={
+                        tokenLogo.startsWith('ipfs://')
+                          ? `https://ipfs.io/ipfs/${tokenLogo.slice('ipfs://'.length)}`
+                          : tokenLogo
+                      }
+                      alt={`${tokenSymbol || 'Token'} logo`}
+                      className="h-12 w-12 rounded-full object-cover bg-white/5 border border-white/10 shrink-0"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+                      {tokenName || 'Unknown Token'}
+                      {tokenSymbol && (
+                        <span className="text-gray-500 text-base sm:text-lg ml-2 font-normal">
+                          {tokenSymbol}
+                        </span>
+                      )}
+                    </h1>
+                    <div className="mt-1.5">
+                      <AddressLink address={presale.tokenAddress} variant="token" />
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end">

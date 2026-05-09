@@ -5,10 +5,10 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
 describe("Launchpad", function () {
   let tokenFactory, launchpad, owner, seller, buyer, other;
 
-  async function createToken(symbol = "TEST", supply = "1000000") {
+  async function createToken(symbol = "TEST", supply = "1000000", logoURI = "") {
     const tx = await tokenFactory
       .connect(seller)
-      .createToken("Test", symbol, ethers.parseEther(supply));
+      .createToken("Test", symbol, ethers.parseEther(supply), logoURI);
     const receipt = await tx.wait();
     // Pull the token address from the factory's TokenCreated event.
     const evt = receipt.logs
@@ -58,6 +58,37 @@ describe("Launchpad", function () {
     const Launchpad = await ethers.getContractFactory("Launchpad");
     launchpad = await Launchpad.deploy();
     await launchpad.waitForDeployment();
+  });
+
+  describe("Token metadata", function () {
+    it("stores logoURI on the deployed token and emits it in TokenCreated", async function () {
+      const uri = "ipfs://bafy/test-logo.png";
+      const tx = await tokenFactory
+        .connect(seller)
+        .createToken("Test", "TEST", ethers.parseEther("1000000"), uri);
+      const receipt = await tx.wait();
+      const evt = receipt.logs
+        .map((l) => {
+          try {
+            return tokenFactory.interface.parseLog(l);
+          } catch {
+            return null;
+          }
+        })
+        .find((p) => p && p.name === "TokenCreated");
+      expect(evt.args.logoURI).to.equal(uri);
+
+      const token = await ethers.getContractAt(
+        "LaunchpadToken",
+        evt.args.tokenAddress
+      );
+      expect(await token.logoURI()).to.equal(uri);
+    });
+
+    it("accepts an empty logoURI for backwards compatibility", async function () {
+      const token = await createToken();
+      expect(await token.logoURI()).to.equal("");
+    });
   });
 
   describe("Funding flow", function () {

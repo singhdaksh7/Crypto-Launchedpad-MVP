@@ -13,19 +13,22 @@ contract TokenFactory {
         address indexed tokenAddress,
         string name,
         string symbol,
-        uint256 supply
+        uint256 supply,
+        string logoURI
     );
 
     function createToken(
         string memory name,
         string memory symbol,
-        uint256 initialSupply
+        uint256 initialSupply,
+        string memory logoURI
     ) public returns (address) {
         LaunchpadToken token = new LaunchpadToken(
             name,
             symbol,
             initialSupply,
-            msg.sender
+            msg.sender,
+            logoURI
         );
         address tokenAddress = address(token);
 
@@ -33,7 +36,7 @@ contract TokenFactory {
         tokenCreators[tokenAddress] = msg.sender;
         isCreatedToken[tokenAddress] = true;
 
-        emit TokenCreated(msg.sender, tokenAddress, name, symbol, initialSupply);
+        emit TokenCreated(msg.sender, tokenAddress, name, symbol, initialSupply, logoURI);
         return tokenAddress;
     }
 

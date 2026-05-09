@@ -16,6 +16,7 @@ interface FormData {
   name: string;
   symbol: string;
   initialSupply: string;
+  logoURI: string;
 }
 
 interface SuccessState {
@@ -23,6 +24,7 @@ interface SuccessState {
   hash?: string;
   symbol: string;
   supply: string;
+  logoURI: string;
 }
 
 export default function CreateToken() {
@@ -34,7 +36,9 @@ export default function CreateToken() {
     name: '',
     symbol: '',
     initialSupply: '',
+    logoURI: '',
   });
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -42,8 +46,19 @@ export default function CreateToken() {
       setFormData((prev) => ({ ...prev, symbol: value.toUpperCase().slice(0, 8) }));
       return;
     }
+    if (name === 'logoURI') {
+      setLogoLoadFailed(false);
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
+
+  // ipfs:// URIs aren't directly fetchable by browsers — render through a public gateway.
+  const previewSrc = (() => {
+    const v = formData.logoURI.trim();
+    if (!v) return '';
+    if (v.startsWith('ipfs://')) return `https://ipfs.io/ipfs/${v.slice('ipfs://'.length)}`;
+    return v;
+  })();
 
   const handleCreateToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +73,13 @@ export default function CreateToken() {
       const { tokenFactory } = getContractAddresses();
       const contract = new ethers.Contract(tokenFactory, TOKEN_FACTORY_ABI, signer);
       const supply = ethers.parseEther(formData.initialSupply);
-      const tx = await contract.createToken(formData.name, formData.symbol, supply);
+      const logoURI = formData.logoURI.trim();
+      const tx = await contract.createToken(
+        formData.name,
+        formData.symbol,
+        supply,
+        logoURI,
+      );
       const receipt = await tx.wait();
       const tokenAddr = receipt?.logs[0]?.address || '';
 
@@ -67,8 +88,10 @@ export default function CreateToken() {
         hash: receipt?.hash || tx.hash,
         symbol: formData.symbol,
         supply: formData.initialSupply,
+        logoURI,
       });
-      setFormData({ name: '', symbol: '', initialSupply: '' });
+      setFormData({ name: '', symbol: '', initialSupply: '', logoURI: '' });
+      setLogoLoadFailed(false);
     } catch (err: any) {
       setError(friendlyError(err));
     } finally {
@@ -136,6 +159,44 @@ export default function CreateToken() {
               <p className="field-hint">3–6 uppercase characters works best.</p>
             </div>
             <div>
+              <label className="label-text">Token image URL</label>
+              <div className="mt-1.5 flex items-start gap-3">
+                <div className="h-14 w-14 shrink-0 rounded-full bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center text-gray-500">
+                  {previewSrc && !logoLoadFailed ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={previewSrc}
+                      alt="Token logo preview"
+                      className="h-full w-full object-cover"
+                      onError={() => setLogoLoadFailed(true)}
+                      onLoad={() => setLogoLoadFailed(false)}
+                    />
+                  ) : (
+                    <Icon name="image" size={18} />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="url"
+                    name="logoURI"
+                    value={formData.logoURI}
+                    onChange={handleChange}
+                    placeholder="https://… or ipfs://…"
+                    className="input-field"
+                    maxLength={256}
+                  />
+                  <p className="field-hint">
+                    Optional. Paste an HTTPS or ipfs:// link to a square image.
+                  </p>
+                  {previewSrc && logoLoadFailed && (
+                    <p className="field-error mt-1">
+                      Couldn’t load that image. Check the URL.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div>
               <label className="label-text">Initial supply</label>
               <input
                 type="number"
@@ -178,6 +239,25 @@ export default function CreateToken() {
               </span>
               <h3 className="text-lg font-semibold">Token deployed</h3>
             </div>
+
+            {result.logoURI && (
+              <div className="flex items-center gap-3 mb-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={
+                    result.logoURI.startsWith('ipfs://')
+                      ? `https://ipfs.io/ipfs/${result.logoURI.slice('ipfs://'.length)}`
+                      : result.logoURI
+                  }
+                  alt={`${result.symbol} logo`}
+                  className="h-10 w-10 rounded-full object-cover bg-white/5 border border-white/10"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+                <span className="text-sm text-gray-400">Token logo</span>
+              </div>
+            )}
 
             <p className="text-sm text-gray-400 mb-4">
               Your <span className="text-white font-medium">{result.symbol}</span> token
