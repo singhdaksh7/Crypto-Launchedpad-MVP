@@ -1,9 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ethers } from 'ethers';
 import { Layout } from '@/components/Layout';
 import { LAUNCHPAD_ABI } from '@/lib/abis/Launchpad';
-import { getContractAddresses, getProvider, formatEther } from '@/lib/web3';
+import { getContractAddresses, getProvider } from '@/lib/web3';
+import { formatEther } from '@/lib/presale';
+import { compactNumber, formatBnb } from '@/lib/format';
+import { networkLabel } from '@/lib/links';
+import { Icon } from '@/components/ui/Icon';
+import { Stat } from '@/components/ui/Stat';
 
 interface Stats {
   total: number;
@@ -11,154 +16,273 @@ interface Stats {
   totalRaisedBnb: number;
 }
 
-function StatCard({ value, label, loading }: { value: string; label: string; loading: boolean }) {
-  return (
-    <div className="card text-center py-8">
-      {loading ? (
-        <div className="h-9 w-24 bg-gray-700 rounded animate-pulse mx-auto mb-2" />
-      ) : (
-        <p className="text-4xl font-bold text-primary mb-2">{value}</p>
-      )}
-      <p className="text-gray-400 text-sm">{label}</p>
-    </div>
-  );
-}
+const FEATURES = [
+  {
+    icon: 'sparkles' as const,
+    title: 'No-code token creation',
+    desc: 'Deploy a standard ERC20 with custom name, symbol, and supply in under a minute.',
+  },
+  {
+    icon: 'gauge' as const,
+    title: 'Configurable presales',
+    desc: 'Set softcap, hardcap, price, time window and per-wallet limits. All on-chain, no escrow.',
+  },
+  {
+    icon: 'shield' as const,
+    title: 'Refunds if softcap fails',
+    desc: 'If a presale doesn’t hit its softcap, contributors can reclaim their BNB directly from the contract.',
+  },
+  {
+    icon: 'lock' as const,
+    title: 'Open contracts',
+    desc: 'Every token, presale and transaction is verifiable on BscScan. The protocol is open-source.',
+  },
+];
+
+const STEPS = [
+  {
+    n: 1,
+    title: 'Create your token',
+    desc: 'Deploy an ERC20 with a single transaction.',
+  },
+  {
+    n: 2,
+    title: 'Configure the presale',
+    desc: 'Set caps, price and the sale window.',
+  },
+  {
+    n: 3,
+    title: 'Share with your community',
+    desc: 'Anyone can contribute BNB during the sale.',
+  },
+  {
+    n: 4,
+    title: 'Claim or refund',
+    desc: 'Tokens unlock if softcap is hit, otherwise refund.',
+  },
+];
+
+const FAQ = [
+  {
+    q: 'How does the launchpad work?',
+    a: 'You deploy an ERC20 token, transfer the tokens to the launchpad presale contract, and configure the sale (price, caps, window). Contributors send BNB during the sale. If softcap is reached, contributors claim tokens after the sale ends and the owner withdraws the raised BNB minus a 2.5% protocol fee. If softcap isn’t reached, contributors can refund their BNB.',
+  },
+  {
+    q: 'Are my funds safe?',
+    a: 'BNB stays in the presale contract until the sale ends. Owners cannot withdraw funds before the sale closes, and contributors can refund their BNB on-chain if the softcap is missed. The protocol cannot move user funds.',
+  },
+  {
+    q: 'Which network is this on?',
+    a: 'The app currently runs on BSC Testnet by default. Always confirm the network shown in your wallet matches the network shown at the top of this page.',
+  },
+  {
+    q: 'How do I claim my tokens?',
+    a: 'Once a presale ends and softcap is reached, open the presale page and press “Claim”. Tokens are sent directly to your wallet.',
+  },
+  {
+    q: 'What are the fees?',
+    a: 'Creating a token or presale costs only the BSC gas fee. When a successful presale is finalized, the protocol takes a 2.5% fee from the raised BNB. Contributors are not charged any additional fee.',
+  },
+];
 
 export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    (async () => {
       try {
         const provider = getProvider();
         const { launchpad } = getContractAddresses();
         const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, provider);
-
         const counter: bigint = await contract.presaleCounter();
         const total = Number(counter);
-        if (total === 0) { setStats({ total: 0, active: 0, totalRaisedBnb: 0 }); return; }
-
+        if (total === 0) {
+          setStats({ total: 0, active: 0, totalRaisedBnb: 0 });
+          return;
+        }
         const now = BigInt(Math.floor(Date.now() / 1000));
         const details = await Promise.all(
-          Array.from({ length: total }, (_, i) => contract.getPresaleDetails(i))
+          Array.from({ length: total }, (_, i) => contract.getPresaleDetails(i)),
         );
-
         let active = 0;
         let totalRaisedWei = 0n;
         for (const d of details) {
           if (now >= d.startTime && now < d.endTime && d.isActive) active++;
           totalRaisedWei += d.totalRaised;
         }
-
         setStats({
           total,
           active,
-          totalRaisedBnb: parseFloat(parseFloat(formatEther(totalRaisedWei)).toFixed(4)),
+          totalRaisedBnb: parseFloat(formatEther(totalRaisedWei)),
         });
       } catch {
         setStats(null);
       } finally {
         setStatsLoading(false);
       }
-    };
-    fetchStats();
+    })();
   }, []);
 
   return (
-    <Layout>
-      <div className="min-h-[calc(100vh-200px)]">
-        {/* Hero */}
-        <section className="py-20 text-center">
-          <h1 className="text-5xl font-bold mb-4 leading-tight">
-            Launch Your Token on <span className="text-primary">BSC</span>
+    <Layout contained={false}>
+      {/* ── Hero ───────────────────────────────────────── */}
+      <section className="relative overflow-hidden">
+        <div
+          className="absolute inset-0 -z-10 opacity-[0.4]"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0)',
+            backgroundSize: '24px 24px',
+            maskImage: 'radial-gradient(60% 60% at 50% 0%, #000 50%, transparent 100%)',
+            WebkitMaskImage:
+              'radial-gradient(60% 60% at 50% 0%, #000 50%, transparent 100%)',
+          }}
+        />
+        <div className="container-page pt-16 sm:pt-24 pb-16 text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300 mb-6 animate-fade-in">
+            <span className="pulse-dot" />
+            Live on {networkLabel(97)}
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.05] mb-5">
+            Launch tokens on{' '}
+            <span className="text-gradient">BNB&nbsp;Chain</span>,
+            <br className="hidden sm:block" /> no code required.
           </h1>
-          <p className="text-xl text-gray-400 mb-10 max-w-xl mx-auto">
-            The easiest way to create tokens and run presales — no code required.
+          <p className="text-base sm:text-lg text-gray-400 max-w-2xl mx-auto mb-8">
+            Create an ERC20 token, run a transparent presale and let your community
+            participate on-chain — with built-in refunds if your softcap doesn’t hit.
           </p>
-          <div className="flex gap-4 justify-center flex-wrap">
-            <Link href="/create-token" className="btn-primary text-base px-8 py-3">
-              Create Token
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center items-stretch sm:items-center">
+            <Link href="/create-token" className="btn-primary px-6 py-3 text-base">
+              Create your token
+              <Icon name="arrow-right" size={16} />
             </Link>
-            <Link href="/launchpads" className="btn-secondary text-base px-8 py-3">
-              Explore Launchpads
+            <Link href="/launchpads" className="btn-secondary px-6 py-3 text-base">
+              Browse live presales
             </Link>
           </div>
-        </section>
 
-        {/* Live Stats */}
-        <section className="pb-16">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <StatCard
-              value={stats ? stats.total.toString() : '—'}
-              label="Total Presales"
-              loading={statsLoading}
-            />
-            <StatCard
-              value={stats ? stats.active.toString() : '—'}
-              label="Active Now"
-              loading={statsLoading}
-            />
-            <StatCard
-              value={stats ? `${stats.totalRaisedBnb} BNB` : '—'}
-              label="Total Raised"
-              loading={statsLoading}
-            />
-          </div>
-        </section>
+          <p className="text-xs text-gray-500 mt-6">
+            Free to use · Pay only network gas · Contracts open on BscScan
+          </p>
+        </div>
+      </section>
 
-        {/* Features */}
-        <section className="py-16 border-t border-gray-800">
-          <h2 className="text-3xl font-bold mb-12 text-center">Features</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              { title: 'Easy Token Creation', desc: 'Deploy a standard ERC20 token in minutes with custom name, symbol, and supply.', icon: '⚙️' },
-              { title: 'Presale Management', desc: 'Run a presale with softcap, hardcap, vesting, and per-user buy limits.', icon: '📊' },
-              { title: 'Wallet Integration', desc: 'MetaMask support with automatic BSC Testnet switching.', icon: '🔐' },
-            ].map((f, i) => (
-              <div key={i} className="card text-center hover:border-primary transition-colors">
-                <div className="text-4xl mb-4">{f.icon}</div>
-                <h3 className="text-xl font-bold mb-2">{f.title}</h3>
-                <p className="text-gray-400 text-sm">{f.desc}</p>
+      {/* ── Live stats ─────────────────────────────────── */}
+      <section className="container-page pb-16">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Stat
+            label="Total presales"
+            value={stats ? compactNumber(stats.total) : '—'}
+            loading={statsLoading}
+            align="center"
+          />
+          <Stat
+            label="Active now"
+            value={stats ? compactNumber(stats.active) : '—'}
+            loading={statsLoading}
+            align="center"
+          />
+          <Stat
+            label="Total raised"
+            value={stats ? `${formatBnb(stats.totalRaisedBnb)} BNB` : '—'}
+            loading={statsLoading}
+            align="center"
+          />
+        </div>
+      </section>
+
+      {/* ── Features ───────────────────────────────────── */}
+      <section className="container-page py-16 border-t border-white/5">
+        <div className="max-w-2xl mb-10">
+          <h2 className="text-2xl sm:text-3xl font-semibold mb-3">
+            Built for transparent token launches
+          </h2>
+          <p className="text-gray-400">
+            Everything happens on-chain — no custodial intermediaries, no hidden
+            steps. Your contributors see exactly what they’re buying.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {FEATURES.map((f) => (
+            <div key={f.title} className="card card-hover">
+              <div className="h-9 w-9 rounded-lg bg-primary-500/15 text-primary-400 flex items-center justify-center mb-4">
+                <Icon name={f.icon} size={18} />
               </div>
+              <h3 className="font-semibold mb-1.5">{f.title}</h3>
+              <p className="text-sm text-gray-400 leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── How it works ───────────────────────────────── */}
+      <section className="container-page py-16 border-t border-white/5">
+        <h2 className="text-2xl sm:text-3xl font-semibold mb-10 text-center">
+          How it works
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {STEPS.map((s) => (
+            <div key={s.n} className="card relative">
+              <span className="absolute -top-3 left-5 px-2 py-0.5 rounded-full bg-brand-gradient text-xs font-semibold">
+                Step {s.n}
+              </span>
+              <h3 className="font-semibold mt-2 mb-1.5">{s.title}</h3>
+              <p className="text-sm text-gray-400">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── FAQ ────────────────────────────────────────── */}
+      <section className="container-page py-16 border-t border-white/5">
+        <div className="max-w-3xl mx-auto">
+          <h2 className="text-2xl sm:text-3xl font-semibold mb-3 text-center">
+            Frequently asked questions
+          </h2>
+          <p className="text-gray-400 text-center mb-10">
+            Everything you should know before launching or contributing.
+          </p>
+          <div className="space-y-3">
+            {FAQ.map((item, i) => (
+              <details
+                key={i}
+                className="card group cursor-pointer hover:border-white/15 transition"
+              >
+                <summary className="flex justify-between items-center font-medium list-none">
+                  {item.q}
+                  <Icon
+                    name="arrow-down"
+                    size={16}
+                    className="text-gray-500 transition-transform group-open:rotate-180"
+                  />
+                </summary>
+                <p className="text-sm text-gray-400 mt-3 leading-relaxed">{item.a}</p>
+              </details>
             ))}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* How It Works */}
-        <section className="py-16 border-t border-gray-800">
-          <h2 className="text-3xl font-bold mb-12 text-center">How It Works</h2>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
-            {[
-              { step: '1', title: 'Create Token', desc: 'Deploy your ERC20 token' },
-              { step: '2', title: 'Set Up Presale', desc: 'Define caps, price & timing' },
-              { step: '3', title: 'Share Link', desc: 'Share with your community' },
-              { step: '4', title: 'Users Buy', desc: 'Community joins the presale' },
-              { step: '5', title: 'Claim / Refund', desc: 'Tokens or BNB after presale' },
-            ].map((s, i) => (
-              <div key={i} className="flex flex-col items-center text-center gap-2">
-                <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-xl font-bold shrink-0">
-                  {s.step}
-                </div>
-                {i < 4 && (
-                  <div className="hidden md:block absolute" />
-                )}
-                <p className="font-semibold text-sm">{s.title}</p>
-                <p className="text-gray-400 text-xs">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section className="py-16 border-t border-gray-800 text-center">
-          <h2 className="text-3xl font-bold mb-4">Ready to launch?</h2>
-          <p className="text-gray-400 mb-8">Create your token in under 2 minutes.</p>
-          <Link href="/create-token" className="btn-primary text-base px-10 py-3">
-            Get Started
+      {/* ── Final CTA ──────────────────────────────────── */}
+      <section className="container-page py-20 border-t border-white/5">
+        <div className="card border-white/10 text-center max-w-3xl mx-auto bg-gradient-to-br from-primary-500/10 to-secondary-500/10">
+          <h2 className="text-2xl sm:text-3xl font-semibold mb-3">
+            Ready to launch your token?
+          </h2>
+          <p className="text-gray-400 mb-6 max-w-md mx-auto">
+            Deploy in under two minutes. No fees beyond network gas — and a 2.5%
+            protocol fee only on successful raises.
+          </p>
+          <Link href="/create-token" className="btn-primary px-6 py-3 text-base">
+            Get started
+            <Icon name="arrow-right" size={16} />
           </Link>
-        </section>
-      </div>
+        </div>
+      </section>
     </Layout>
   );
 }

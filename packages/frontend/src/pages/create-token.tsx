@@ -5,25 +5,51 @@ import { useWeb3Store } from '@/store';
 import { Layout } from '@/components/Layout';
 import { TOKEN_FACTORY_ABI } from '@/lib/abis/TokenFactory';
 import { getContractAddresses } from '@/lib/web3';
+import { friendlyError } from '@/lib/format';
+import { txUrl } from '@/lib/links';
+import { Icon } from '@/components/ui/Icon';
+import { Alert } from '@/components/ui/Alert';
+import { AddressLink } from '@/components/ui/AddressLink';
+
+interface FormData {
+  name: string;
+  symbol: string;
+  initialSupply: string;
+}
+
+interface SuccessState {
+  address: string;
+  hash?: string;
+  symbol: string;
+  supply: string;
+}
 
 export default function CreateToken() {
   const { account, signer } = useWeb3Store();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tokenAddress, setTokenAddress] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const [formData, setFormData] = useState({ name: '', symbol: '', initialSupply: '' });
+  const [result, setResult] = useState<SuccessState | null>(null);
+  const [formData, setFormData] = useState<FormData>({
+    name: '',
+    symbol: '',
+    initialSupply: '',
+  });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    if (name === 'symbol') {
+      setFormData((prev) => ({ ...prev, symbol: value.toUpperCase().slice(0, 8) }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleCreateToken = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!signer || !account) { setError('Please connect wallet first'); return; }
-
+    if (!signer || !account) {
+      setError('Connect your wallet first.');
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
@@ -33,122 +59,160 @@ export default function CreateToken() {
       const supply = ethers.parseEther(formData.initialSupply);
       const tx = await contract.createToken(formData.name, formData.symbol, supply);
       const receipt = await tx.wait();
-      const tokenAddr = receipt?.logs[0]?.address || 'Unknown';
+      const tokenAddr = receipt?.logs[0]?.address || '';
 
-      setTokenAddress(tokenAddr);
+      setResult({
+        address: tokenAddr,
+        hash: receipt?.hash || tx.hash,
+        symbol: formData.symbol,
+        supply: formData.initialSupply,
+      });
       setFormData({ name: '', symbol: '', initialSupply: '' });
     } catch (err: any) {
-      setError(err.reason || err.message || 'Failed to create token');
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }
   };
 
-  const copyAddress = () => {
-    if (!tokenAddress) return;
-    navigator.clipboard.writeText(tokenAddress);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   return (
     <Layout>
-      <div className="max-w-2xl mx-auto py-12">
-        <h1 className="text-4xl font-bold mb-2">Create Token</h1>
-        <p className="text-gray-400 mb-8">Deploy an ERC20 token on BSC Testnet in seconds.</p>
+      <div className="max-w-2xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
+            Create a token
+          </h1>
+          <p className="text-gray-400 text-sm mt-1">
+            Deploy a standard ERC20 on BNB Chain. The token is minted to your wallet.
+          </p>
+        </div>
 
         {error && (
-          <div className="bg-red-900 border border-red-700 p-4 rounded-lg mb-6 text-red-200 text-sm">
+          <Alert tone="error" onDismiss={() => setError(null)} className="mb-4">
             {error}
-          </div>
+          </Alert>
         )}
 
         {!account ? (
-          <div className="card text-center py-12">
-            <p className="text-gray-400 mb-2">Connect your wallet to create a token</p>
+          <div className="card text-center py-16">
+            <div className="mx-auto h-12 w-12 rounded-full bg-white/5 flex items-center justify-center text-gray-300 mb-3">
+              <Icon name="wallet" size={20} />
+            </div>
+            <p className="text-lg font-medium mb-1">Wallet required</p>
+            <p className="text-sm text-gray-400 max-w-sm mx-auto">
+              Connect a wallet to deploy a token. You’ll pay only the network gas fee.
+            </p>
           </div>
         ) : (
-          <form onSubmit={handleCreateToken} className="card space-y-6">
+          <form onSubmit={handleCreateToken} className="card space-y-5">
             <div>
-              <label className="label-text">Token Name</label>
+              <label className="label-text">Token name</label>
               <input
                 type="text"
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="e.g., My Awesome Token"
-                className="input-field mt-2"
+                placeholder="My Awesome Token"
+                className="input-field mt-1.5"
                 required
+                maxLength={48}
               />
+              <p className="field-hint">Shown on explorers and wallets.</p>
             </div>
             <div>
-              <label className="label-text">Token Symbol</label>
+              <label className="label-text">Symbol</label>
               <input
                 type="text"
                 name="symbol"
                 value={formData.symbol}
                 onChange={handleChange}
-                placeholder="e.g., MAT"
-                className="input-field mt-2"
+                placeholder="MAT"
+                className="input-field mt-1.5 font-mono uppercase tracking-wide"
                 required
-                maxLength={5}
+                maxLength={8}
               />
-              <p className="text-xs text-gray-500 mt-1">Max 5 characters</p>
+              <p className="field-hint">3–6 uppercase characters works best.</p>
             </div>
             <div>
-              <label className="label-text">Initial Supply</label>
+              <label className="label-text">Initial supply</label>
               <input
                 type="number"
                 name="initialSupply"
                 value={formData.initialSupply}
                 onChange={handleChange}
-                placeholder="e.g., 1000000"
-                className="input-field mt-2"
+                placeholder="1000000"
+                className="input-field mt-1.5"
                 required
                 min="1"
               />
-              <p className="text-xs text-gray-500 mt-1">Total tokens to mint (18 decimals)</p>
+              <p className="field-hint">
+                Total tokens minted to your wallet (18 decimals).
+              </p>
             </div>
-            <button type="submit" disabled={loading} className="w-full btn-primary disabled:opacity-50">
-              {loading ? 'Deploying...' : 'Create Token'}
+
+            <Alert tone="info">
+              You’ll pay only the BSC network gas fee. The token contract is deployed
+              by the factory and ownership is transferred to you.
+            </Alert>
+
+            <button type="submit" disabled={loading} className="w-full btn-primary">
+              {loading ? (
+                <>
+                  <Icon name="spinner" size={14} /> Deploying…
+                </>
+              ) : (
+                'Deploy token'
+              )}
             </button>
           </form>
         )}
 
-        {tokenAddress && (
-          <div className="card mt-8 border-green-800">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-2xl">🎉</span>
-              <h3 className="text-xl font-bold">Token Created!</h3>
-            </div>
-
-            <p className="text-gray-400 text-sm mb-2">Token Contract Address</p>
-            <div className="bg-gray-800 p-3 rounded-lg flex items-center justify-between gap-2 mb-6">
-              <span className="text-primary break-all font-mono text-sm">{tokenAddress}</span>
-              <button
-                onClick={copyAddress}
-                className="shrink-0 text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition"
-              >
-                {copied ? '✓ Copied' : 'Copy'}
-              </button>
+        {result && (
+          <div className="card mt-6 border-emerald-500/30 bg-emerald-500/[0.04] animate-slide-up">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center">
+                <Icon name="check" size={16} />
+              </span>
+              <h3 className="text-lg font-semibold">Token deployed</h3>
             </div>
 
             <p className="text-sm text-gray-400 mb-4">
-              Next step: create a presale to sell your token to the community.
+              Your <span className="text-white font-medium">{result.symbol}</span> token
+              is live. {Number(result.supply).toLocaleString()} tokens were minted to your
+              wallet.
             </p>
 
-            <div className="flex gap-3 flex-wrap">
-              <Link
-                href={`/dashboard?token=${tokenAddress}`}
-                className="btn-primary text-sm"
+            <div className="bg-surface-2 border border-white/5 rounded-lg p-3 mb-4">
+              <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
+                Contract address
+              </p>
+              <AddressLink address={result.address} variant="token" truncate={false} />
+            </div>
+
+            {result.hash && (
+              <a
+                href={txUrl(result.hash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-gray-400 hover:text-white inline-flex items-center gap-1 mb-5"
               >
-                Create Presale with this Token →
+                View deployment transaction <Icon name="external" size={12} />
+              </a>
+            )}
+
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href={`/dashboard?token=${result.address}`}
+                className="btn-primary"
+              >
+                Create presale
+                <Icon name="arrow-right" size={14} />
               </Link>
               <button
-                onClick={() => setTokenAddress(null)}
-                className="btn-secondary text-sm"
+                onClick={() => setResult(null)}
+                className="btn-secondary"
               >
-                Create Another Token
+                Deploy another
               </button>
             </div>
           </div>

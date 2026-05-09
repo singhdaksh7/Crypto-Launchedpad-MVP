@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ethers } from 'ethers';
@@ -6,122 +6,29 @@ import { useWeb3Store } from '@/store';
 import { Layout } from '@/components/Layout';
 import { LAUNCHPAD_ABI } from '@/lib/abis/Launchpad';
 import { ERC20_ABI } from '@/lib/abis/ERC20';
-import { getContractAddresses, getProvider, formatEther, formatAddress } from '@/lib/web3';
-
-interface PresaleConfig {
-  tokenAddress: string;
-  owner: string;
-  tokenPrice: bigint;
-  softcap: bigint;
-  hardcap: bigint;
-  startTime: bigint;
-  endTime: bigint;
-  maxBuyPerUser: bigint;
-  totalRaised: bigint;
-  isActive: boolean;
-  isFinalized: boolean;
-}
+import { getContractAddresses, getProvider } from '@/lib/web3';
+import {
+  PresaleConfig,
+  formatEther,
+  getPresaleStatus,
+  progressPct,
+  softcapReached as softcapMet,
+  tokensPerBnb as bnbToTokens,
+} from '@/lib/presale';
+import { friendlyError, formatBnb, compactNumber } from '@/lib/format';
+import { txUrl } from '@/lib/links';
+import { Icon } from '@/components/ui/Icon';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { Countdown } from '@/components/ui/Countdown';
+import { Stat } from '@/components/ui/Stat';
+import { AddressLink } from '@/components/ui/AddressLink';
+import { Alert } from '@/components/ui/Alert';
 
 interface UserContribution {
   amount: bigint;
   tokenAmount: bigint;
   claimed: boolean;
-}
-
-type Status = 'upcoming' | 'active' | 'ended' | 'finalized';
-
-function getStatus(p: PresaleConfig): Status {
-  const now = BigInt(Math.floor(Date.now() / 1000));
-  if (p.isFinalized) return 'finalized';
-  if (now < p.startTime) return 'upcoming';
-  if (now >= p.startTime && now < p.endTime) return 'active';
-  return 'ended';
-}
-
-function ProgressBar({ raised, hardcap }: { raised: bigint; hardcap: bigint }) {
-  const pct = hardcap === 0n ? 0 : Number((raised * 10000n) / hardcap) / 100;
-  const clamped = Math.min(pct, 100);
-  return (
-    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-      <div
-        className="h-3 rounded-full transition-all duration-500"
-        style={{
-          width: `${clamped}%`,
-          background: clamped >= 100 ? '#22c55e' : clamped >= 50 ? '#f59e0b' : '#8b5cf6',
-        }}
-      />
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: Status }) {
-  const styles: Record<Status, string> = {
-    upcoming: 'bg-blue-900 text-blue-300 border-blue-700',
-    active: 'bg-green-900 text-green-300 border-green-700',
-    ended: 'bg-gray-700 text-gray-300 border-gray-600',
-    finalized: 'bg-purple-900 text-purple-300 border-purple-700',
-  };
-  const labels: Record<Status, string> = {
-    upcoming: '⏳ Upcoming',
-    active: '🟢 Active',
-    ended: '⏹ Ended',
-    finalized: '✅ Finalized',
-  };
-  return (
-    <span className={`px-3 py-1 rounded-full text-sm font-medium border ${styles[status]}`}>
-      {labels[status]}
-    </span>
-  );
-}
-
-function CountdownTimer({ target, label }: { target: bigint; label: string }) {
-  const [timeLeft, setTimeLeft] = useState('');
-
-  useEffect(() => {
-    const calc = () => {
-      const now = Math.floor(Date.now() / 1000);
-      const diff = Number(target) - now;
-      if (diff <= 0) { setTimeLeft('0s'); return; }
-      const d = Math.floor(diff / 86400);
-      const h = Math.floor((diff % 86400) / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      const s = diff % 60;
-      setTimeLeft(d > 0 ? `${d}d ${h}h ${m}m ${s}s` : `${h}h ${m}m ${s}s`);
-    };
-    calc();
-    const id = setInterval(calc, 1000);
-    return () => clearInterval(id);
-  }, [target]);
-
-  return (
-    <div className="text-center">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
-      <p className="text-xl font-mono font-bold text-yellow-400">{timeLeft}</p>
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex justify-between items-center py-3 border-b border-gray-800 last:border-0">
-      <span className="text-gray-400 text-sm">{label}</span>
-      <span className="text-white font-medium text-sm">{value}</span>
-    </div>
-  );
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <button onClick={copy} className="ml-2 text-xs text-gray-400 hover:text-primary transition">
-      {copied ? '✓ Copied' : 'Copy'}
-    </button>
-  );
 }
 
 export default function PresaleDetail() {
@@ -137,7 +44,7 @@ export default function PresaleDetail() {
   const [error, setError] = useState<string | null>(null);
   const [txLoading, setTxLoading] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
-  const [txSuccess, setTxSuccess] = useState<string | null>(null);
+  const [txSuccess, setTxSuccess] = useState<{ msg: string; hash?: string } | null>(null);
   const [buyAmount, setBuyAmount] = useState('');
 
   const presaleId = id ? Number(id) : null;
@@ -145,7 +52,6 @@ export default function PresaleDetail() {
   const fetchData = useCallback(async () => {
     if (presaleId === null || isNaN(presaleId)) return;
     try {
-      setLoading(true);
       setError(null);
       const provider = getProvider();
       const { launchpad } = getContractAddresses();
@@ -159,34 +65,55 @@ export default function PresaleDetail() {
         const [name, symbol] = await Promise.all([token.name(), token.symbol()]);
         setTokenName(name);
         setTokenSymbol(symbol);
-      } catch {}
+      } catch {
+        /* token may not be ERC20 metadata-compliant */
+      }
 
       if (account) {
-        const contrib: UserContribution = await contract.getUserContribution(presaleId, account);
-        setContribution(contrib);
+        const c: UserContribution = await contract.getUserContribution(presaleId, account);
+        setContribution(c);
+      } else {
+        setContribution(null);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load presale');
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }
   }, [presaleId, account]);
 
   useEffect(() => {
+    setLoading(true);
     fetchData();
   }, [fetchData]);
 
-  const runTx = async (action: () => Promise<void>, successMsg: string) => {
-    if (!signer || !account) { setTxError('Connect wallet first'); return; }
+  // Live refresh while presale is active or in claim/refund window.
+  useEffect(() => {
+    if (!presale) return;
+    const status = getPresaleStatus(presale);
+    if (status === 'finalized') return;
+    const id = setInterval(fetchData, 15000);
+    return () => clearInterval(id);
+  }, [presale, fetchData]);
+
+  const runTx = async (
+    action: () => Promise<ethers.TransactionResponse>,
+    successMsg: string,
+  ) => {
+    if (!signer || !account) {
+      setTxError('Connect your wallet first.');
+      return;
+    }
     try {
       setTxLoading(true);
       setTxError(null);
       setTxSuccess(null);
-      await action();
-      setTxSuccess(successMsg);
+      const tx = await action();
+      const receipt = await tx.wait();
+      setTxSuccess({ msg: successMsg, hash: receipt?.hash || tx.hash });
       await fetchData();
     } catch (err: any) {
-      setTxError(err.reason || err.message || 'Transaction failed');
+      setTxError(friendlyError(err));
     } finally {
       setTxLoading(false);
     }
@@ -196,205 +123,339 @@ export default function PresaleDetail() {
     runTx(async () => {
       const { launchpad } = getContractAddresses();
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer!);
-      const tx = await contract.buyTokens(presaleId, { value: ethers.parseEther(buyAmount) });
-      await tx.wait();
+      const tx = await contract.buyTokens(presaleId, {
+        value: ethers.parseEther(buyAmount),
+      });
       setBuyAmount('');
-    }, 'Tokens purchased successfully!');
+      return tx;
+    }, 'Tokens purchased successfully.');
 
   const handleClaim = () =>
     runTx(async () => {
       const { launchpad } = getContractAddresses();
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer!);
-      const tx = await contract.claimTokens(presaleId);
-      await tx.wait();
-    }, 'Tokens claimed successfully!');
+      return contract.claimTokens(presaleId);
+    }, 'Tokens claimed.');
 
   const handleRefund = () =>
     runTx(async () => {
       const { launchpad } = getContractAddresses();
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer!);
-      const tx = await contract.refundContribution(presaleId);
-      await tx.wait();
-    }, 'BNB refunded successfully!');
+      return contract.refundContribution(presaleId);
+    }, 'BNB refunded.');
 
   const handleWithdraw = () =>
     runTx(async () => {
       const { launchpad } = getContractAddresses();
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer!);
-      const tx = await contract.withdrawFunds(presaleId);
-      await tx.wait();
-    }, 'Funds withdrawn successfully!');
+      return contract.withdrawFunds(presaleId);
+    }, 'Funds withdrawn.');
+
+  const derived = useMemo(() => {
+    if (!presale) return null;
+    const status = getPresaleStatus(presale);
+    const raisedBnb = parseFloat(formatEther(presale.totalRaised));
+    const hardcapBnb = parseFloat(formatEther(presale.hardcap));
+    const softcapBnb = parseFloat(formatEther(presale.softcap));
+    const pct = progressPct(presale.totalRaised, presale.hardcap);
+    const reached = softcapMet(presale);
+    const isOwner = account?.toLowerCase() === presale.owner.toLowerCase();
+    const tokensPerBnb = bnbToTokens(presale.tokenPrice);
+    const hasContrib = !!contribution && contribution.amount > 0n;
+    const alreadyClaimed = contribution?.claimed ?? false;
+    const remainingCap = presale.hardcap - presale.totalRaised;
+    const userRemaining = hasContrib
+      ? presale.maxBuyPerUser - contribution!.amount
+      : presale.maxBuyPerUser;
+    const effectiveMax = userRemaining < remainingCap ? userRemaining : remainingCap;
+    const effectiveMaxBnb = parseFloat(formatEther(effectiveMax > 0n ? effectiveMax : 0n));
+    return {
+      status,
+      raisedBnb,
+      hardcapBnb,
+      softcapBnb,
+      pct,
+      reached,
+      isOwner,
+      tokensPerBnb,
+      hasContrib,
+      alreadyClaimed,
+      effectiveMax,
+      effectiveMaxBnb,
+    };
+  }, [presale, contribution, account]);
 
   if (loading) {
     return (
       <Layout>
-        <div className="max-w-4xl mx-auto py-12 animate-pulse space-y-6">
-          <div className="h-8 bg-gray-800 rounded w-1/3" />
+        <div className="max-w-5xl mx-auto animate-pulse space-y-4">
+          <div className="h-6 bg-white/5 rounded w-40" />
           <div className="card space-y-4">
-            <div className="h-5 bg-gray-800 rounded w-1/2" />
-            <div className="h-3 bg-gray-800 rounded" />
-            <div className="h-3 bg-gray-800 rounded w-3/4" />
+            <div className="h-7 bg-white/5 rounded w-1/2" />
+            <div className="h-3 bg-white/5 rounded" />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="h-20 bg-white/5 rounded" />
+              <div className="h-20 bg-white/5 rounded" />
+              <div className="h-20 bg-white/5 rounded" />
+              <div className="h-20 bg-white/5 rounded" />
+            </div>
           </div>
         </div>
       </Layout>
     );
   }
 
-  if (error || !presale) {
+  if (error || !presale || !derived) {
     return (
       <Layout>
-        <div className="max-w-4xl mx-auto py-12">
+        <div className="max-w-2xl mx-auto">
           <div className="card text-center py-16">
-            <p className="text-red-400 text-lg mb-4">{error || 'Presale not found'}</p>
-            <Link href="/launchpads" className="btn-secondary">← Back to Launchpads</Link>
+            <div className="mx-auto h-10 w-10 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center mb-3">
+              <Icon name="alert" size={18} />
+            </div>
+            <p className="text-lg font-medium mb-1">Couldn’t load presale</p>
+            <p className="text-sm text-gray-400 mb-6">{error || 'Presale not found.'}</p>
+            <Link href="/launchpads" className="btn-secondary">
+              Back to Launchpads
+            </Link>
           </div>
         </div>
       </Layout>
     );
   }
 
-  const status = getStatus(presale);
-  const now = BigInt(Math.floor(Date.now() / 1000));
-  const raisedEth = parseFloat(formatEther(presale.totalRaised));
-  const hardcapEth = parseFloat(formatEther(presale.hardcap));
-  const softcapEth = parseFloat(formatEther(presale.softcap));
-  const pct = hardcapEth > 0 ? Math.min((raisedEth / hardcapEth) * 100, 100) : 0;
-  const softcapReached = presale.totalRaised >= presale.softcap;
-  const isOwner = account?.toLowerCase() === presale.owner.toLowerCase();
-  const hasContrib = contribution && contribution.amount > 0n;
-  const alreadyClaimed = contribution?.claimed ?? false;
+  const {
+    status,
+    raisedBnb,
+    hardcapBnb,
+    softcapBnb,
+    pct,
+    reached,
+    isOwner,
+    tokensPerBnb,
+    hasContrib,
+    alreadyClaimed,
+    effectiveMax,
+    effectiveMaxBnb,
+  } = derived;
 
-  const maxBuyLeft = hasContrib
-    ? presale.maxBuyPerUser - contribution!.amount
-    : presale.maxBuyPerUser;
-  const remainingCap = presale.hardcap - presale.totalRaised;
-  const effectiveMax = maxBuyLeft < remainingCap ? maxBuyLeft : remainingCap;
-
-  const tokensPerBnb = presale.tokenPrice > 0n
-    ? Number(ethers.parseEther('1')) / Number(presale.tokenPrice)
-    : 0;
+  const buyValue = parseFloat(buyAmount || '0');
+  const previewTokens = isFinite(buyValue) && buyValue > 0 ? buyValue * tokensPerBnb : 0;
+  const buyDisabled =
+    txLoading ||
+    !buyAmount ||
+    buyValue <= 0 ||
+    buyValue > effectiveMaxBnb;
 
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto py-12">
-        <div className="flex items-center gap-3 mb-8">
-          <Link href="/launchpads" className="text-gray-400 hover:text-white transition">
-            ← Launchpads
+      <div className="max-w-5xl mx-auto">
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-2 text-sm text-gray-500 mb-6">
+          <Link href="/launchpads" className="hover:text-white transition">
+            Launchpads
           </Link>
-          <span className="text-gray-600">/</span>
+          <span>/</span>
           <span className="text-gray-300">Presale #{presaleId}</span>
-        </div>
+        </nav>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left column: info */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Header card */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+          {/* ── Left: details ─────────────────────────── */}
+          <div className="lg:col-span-2 space-y-4 lg:space-y-6">
+            {/* Header */}
             <div className="card">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h1 className="text-3xl font-bold">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+                <div className="min-w-0">
+                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
                     {tokenName || 'Unknown Token'}
                     {tokenSymbol && (
-                      <span className="text-primary ml-2 text-xl">({tokenSymbol})</span>
+                      <span className="text-gray-500 text-base sm:text-lg ml-2 font-normal">
+                        {tokenSymbol}
+                      </span>
                     )}
                   </h1>
-                  <div className="flex items-center mt-1 text-sm text-gray-400 font-mono">
-                    {formatAddress(presale.tokenAddress)}
-                    <CopyButton text={presale.tokenAddress} />
+                  <div className="mt-1.5">
+                    <AddressLink address={presale.tokenAddress} variant="token" />
                   </div>
                 </div>
                 <StatusBadge status={status} />
               </div>
 
               {/* Progress */}
-              <div className="mt-6">
+              <div>
                 <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-400">Progress ({pct.toFixed(2)}%)</span>
-                  <span className="font-medium">
-                    {raisedEth.toFixed(4)} / {hardcapEth.toFixed(2)} BNB
+                  <span className="text-gray-400">{pct.toFixed(2)}% raised</span>
+                  <span className="font-medium tabular-nums">
+                    {formatBnb(raisedBnb)} / {formatBnb(hardcapBnb)} BNB
                   </span>
                 </div>
                 <ProgressBar raised={presale.totalRaised} hardcap={presale.hardcap} />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>Softcap: {softcapEth.toFixed(2)} BNB {softcapReached ? '✅' : ''}</span>
-                  <span>Hardcap: {hardcapEth.toFixed(2)} BNB</span>
+                <div className="flex justify-between text-xs text-gray-500 mt-2">
+                  <span>
+                    Softcap {formatBnb(softcapBnb)} BNB{' '}
+                    {reached && (
+                      <span className="text-emerald-400">· reached</span>
+                    )}
+                  </span>
+                  <span>Hardcap {formatBnb(hardcapBnb)} BNB</span>
                 </div>
               </div>
 
               {/* Countdown */}
-              {status === 'active' && (
-                <div className="mt-6 bg-gray-800 rounded-lg p-4 text-center">
-                  <CountdownTimer target={presale.endTime} label="Presale ends in" />
-                </div>
-              )}
-              {status === 'upcoming' && (
-                <div className="mt-6 bg-gray-800 rounded-lg p-4 text-center">
-                  <CountdownTimer target={presale.startTime} label="Presale starts in" />
+              {(status === 'active' || status === 'upcoming') && (
+                <div className="mt-6">
+                  <Countdown
+                    target={status === 'active' ? presale.endTime : presale.startTime}
+                    variant="blocks"
+                    label={
+                      status === 'active' ? 'Sale ends in' : 'Sale starts in'
+                    }
+                    onComplete={fetchData}
+                  />
                 </div>
               )}
             </div>
 
-            {/* Details card */}
-            <div className="card">
-              <h2 className="text-lg font-bold mb-4">Presale Details</h2>
-              <InfoRow label="Token Price" value={`${formatEther(presale.tokenPrice)} BNB per token`} />
-              <InfoRow label="Tokens per BNB" value={tokensPerBnb.toLocaleString(undefined, { maximumFractionDigits: 2 })} />
-              <InfoRow label="Softcap" value={`${softcapEth.toFixed(2)} BNB`} />
-              <InfoRow label="Hardcap" value={`${hardcapEth.toFixed(2)} BNB`} />
-              <InfoRow label="Max Buy Per User" value={`${parseFloat(formatEther(presale.maxBuyPerUser)).toFixed(4)} BNB`} />
-              <InfoRow
-                label="Start Time"
-                value={new Date(Number(presale.startTime) * 1000).toLocaleString()}
+            {/* KPI grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <Stat
+                label="Token price"
+                value={`${formatBnb(parseFloat(formatEther(presale.tokenPrice)), 8)} BNB`}
               />
-              <InfoRow
-                label="End Time"
-                value={new Date(Number(presale.endTime) * 1000).toLocaleString()}
+              <Stat
+                label="Tokens per BNB"
+                value={compactNumber(tokensPerBnb, 2)}
               />
-              <InfoRow
-                label="Owner"
-                value={
-                  <span className="font-mono flex items-center">
-                    {formatAddress(presale.owner)}
-                    <CopyButton text={presale.owner} />
-                  </span>
-                }
+              <Stat
+                label="Max per wallet"
+                value={`${formatBnb(parseFloat(formatEther(presale.maxBuyPerUser)))} BNB`}
+              />
+              <Stat
+                label="Sale window"
+                value={`${Math.max(
+                  1,
+                  Math.round(Number(presale.endTime - presale.startTime) / 86400),
+                )}d`}
+                hint={`${new Date(Number(presale.startTime) * 1000).toLocaleDateString()} → ${new Date(
+                  Number(presale.endTime) * 1000,
+                ).toLocaleDateString()}`}
               />
             </div>
+
+            {/* Details */}
+            <div className="card">
+              <h2 className="text-base font-semibold mb-4">Presale details</h2>
+              <dl className="divide-y divide-white/5">
+                <DetailRow
+                  label="Token contract"
+                  value={<AddressLink address={presale.tokenAddress} variant="token" />}
+                />
+                <DetailRow
+                  label="Owner"
+                  value={<AddressLink address={presale.owner} />}
+                />
+                <DetailRow
+                  label="Start"
+                  value={new Date(Number(presale.startTime) * 1000).toLocaleString()}
+                />
+                <DetailRow
+                  label="End"
+                  value={new Date(Number(presale.endTime) * 1000).toLocaleString()}
+                />
+                <DetailRow
+                  label="Token price"
+                  value={`${formatBnb(parseFloat(formatEther(presale.tokenPrice)), 8)} BNB / token`}
+                />
+                <DetailRow label="Softcap" value={`${formatBnb(softcapBnb)} BNB`} />
+                <DetailRow label="Hardcap" value={`${formatBnb(hardcapBnb)} BNB`} />
+                <DetailRow
+                  label="Max per wallet"
+                  value={`${formatBnb(parseFloat(formatEther(presale.maxBuyPerUser)))} BNB`}
+                />
+              </dl>
+            </div>
+
+            {/* Risk note */}
+            <Alert
+              tone="warning"
+              title="Always do your own research"
+            >
+              Token sales are high-risk. Confirm the contract on the explorer, read
+              the team’s communication channels, and never invest more than you can
+              afford to lose. The protocol cannot move user funds — but anyone can
+              create a token, including bad actors.
+            </Alert>
           </div>
 
-          {/* Right column: actions */}
-          <div className="space-y-4">
-            {/* TX feedback */}
+          {/* ── Right: actions ────────────────────────── */}
+          <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
             {txError && (
-              <div className="bg-red-900 border border-red-700 p-4 rounded-lg text-red-200 text-sm">
+              <Alert tone="error" onDismiss={() => setTxError(null)}>
                 {txError}
-              </div>
+              </Alert>
             )}
             {txSuccess && (
-              <div className="bg-green-900 border border-green-700 p-4 rounded-lg text-green-200 text-sm">
-                {txSuccess}
+              <Alert
+                tone="success"
+                onDismiss={() => setTxSuccess(null)}
+                title={txSuccess.msg}
+              >
+                {txSuccess.hash && (
+                  <a
+                    href={txUrl(txSuccess.hash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sm underline underline-offset-2 mt-1"
+                  >
+                    View transaction
+                    <Icon name="external" size={12} />
+                  </a>
+                )}
+              </Alert>
+            )}
+
+            {/* Connect prompt */}
+            {!account && (
+              <div className="card text-center">
+                <div className="mx-auto h-10 w-10 rounded-full bg-white/5 flex items-center justify-center text-gray-300 mb-2">
+                  <Icon name="wallet" size={18} />
+                </div>
+                <p className="font-medium">Wallet required</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Connect a wallet to participate in this presale.
+                </p>
               </div>
             )}
 
-            {/* User contribution */}
+            {/* Your contribution */}
             {account && hasContrib && (
               <div className="card">
-                <h3 className="font-bold mb-3 text-sm text-gray-300">Your Contribution</h3>
+                <h3 className="text-sm font-semibold text-gray-300 mb-3">
+                  Your position
+                </h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">BNB Spent</span>
-                    <span>{parseFloat(formatEther(contribution!.amount)).toFixed(4)} BNB</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Tokens Allocated</span>
-                    <span>{parseFloat(formatEther(contribution!.tokenAmount)).toLocaleString()} {tokenSymbol}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Status</span>
-                    <span className={alreadyClaimed ? 'text-green-400' : 'text-yellow-400'}>
-                      {alreadyClaimed ? 'Claimed' : 'Pending'}
-                    </span>
-                  </div>
+                  <Row
+                    label="Contributed"
+                    value={`${formatBnb(parseFloat(formatEther(contribution!.amount)))} BNB`}
+                  />
+                  <Row
+                    label="Tokens allocated"
+                    value={`${compactNumber(parseFloat(formatEther(contribution!.tokenAmount)), 2)} ${tokenSymbol}`}
+                  />
+                  <Row
+                    label="Status"
+                    value={
+                      <span
+                        className={
+                          alreadyClaimed
+                            ? 'text-emerald-400'
+                            : 'text-amber-300'
+                        }
+                      >
+                        {alreadyClaimed ? 'Claimed' : 'Pending'}
+                      </span>
+                    }
+                  />
                 </div>
               </div>
             )}
@@ -402,103 +463,153 @@ export default function PresaleDetail() {
             {/* Buy panel */}
             {status === 'active' && account && (
               <div className="card">
-                <h3 className="font-bold mb-4">Buy Tokens</h3>
-                <div className="mb-3">
-                  <label className="label-text text-xs">Amount (BNB)</label>
-                  <input
-                    type="number"
-                    value={buyAmount}
-                    onChange={(e) => setBuyAmount(e.target.value)}
-                    placeholder="0.0"
-                    step="0.001"
-                    min="0"
-                    max={parseFloat(formatEther(effectiveMax)).toFixed(4)}
-                    className="input-field mt-1 text-sm"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>Max: {parseFloat(formatEther(effectiveMax)).toFixed(4)} BNB</span>
-                    {buyAmount && (
-                      <span>
-                        ≈ {(parseFloat(buyAmount) * tokensPerBnb).toLocaleString(undefined, { maximumFractionDigits: 2 })} {tokenSymbol}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex gap-2 mb-3">
-                  {['25%', '50%', '75%', 'Max'].map((label) => {
-                    const max = parseFloat(formatEther(effectiveMax));
-                    const pctVal = label === 'Max' ? 1 : parseInt(label) / 100;
-                    return (
-                      <button
-                        key={label}
-                        onClick={() => setBuyAmount((max * pctVal).toFixed(4))}
-                        className="flex-1 text-xs py-1 bg-gray-800 rounded hover:bg-gray-700 transition"
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  onClick={handleBuy}
-                  disabled={txLoading || !buyAmount || parseFloat(buyAmount) <= 0}
-                  className="w-full btn-primary disabled:opacity-50"
-                >
-                  {txLoading ? 'Processing...' : 'Buy Tokens'}
-                </button>
+                <h3 className="font-semibold mb-3">Buy {tokenSymbol || 'tokens'}</h3>
+                {effectiveMaxBnb <= 0 ? (
+                  <p className="text-sm text-gray-400">
+                    You’ve reached your wallet limit, or the hardcap is full.
+                  </p>
+                ) : (
+                  <>
+                    <label className="label-text text-xs">Amount in BNB</label>
+                    <input
+                      type="number"
+                      value={buyAmount}
+                      onChange={(e) => setBuyAmount(e.target.value)}
+                      placeholder="0.0"
+                      step="0.001"
+                      min="0"
+                      max={effectiveMaxBnb}
+                      className="input-field mt-1.5"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1.5">
+                      <span>Max {formatBnb(effectiveMaxBnb)} BNB</span>
+                      {buyValue > 0 && (
+                        <span className="text-gray-300">
+                          ≈ {compactNumber(previewTokens, 2)} {tokenSymbol}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5 mt-3">
+                      {[0.25, 0.5, 0.75, 1].map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setBuyAmount((effectiveMaxBnb * p).toFixed(4))}
+                          className="text-xs py-1.5 rounded-md bg-white/5 hover:bg-white/10 transition border border-white/5"
+                        >
+                          {p === 1 ? 'Max' : `${p * 100}%`}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={handleBuy}
+                      disabled={buyDisabled}
+                      className="w-full btn-primary mt-4"
+                    >
+                      {txLoading ? (
+                        <>
+                          <Icon name="spinner" size={14} />
+                          Processing…
+                        </>
+                      ) : (
+                        <>Buy tokens</>
+                      )}
+                    </button>
+                    <p className="text-[11px] text-gray-500 mt-2 text-center">
+                      Tokens unlock for claim after sale ends if softcap is reached.
+                    </p>
+                  </>
+                )}
               </div>
             )}
 
-            {/* Claim tokens */}
-            {status === 'ended' && !presale.isFinalized && softcapReached && hasContrib && !alreadyClaimed && (
+            {/* Claim */}
+            {status === 'ended' && reached && hasContrib && !alreadyClaimed && (
               <div className="card">
-                <h3 className="font-bold mb-2">Claim Tokens</h3>
+                <h3 className="font-semibold mb-1">Claim tokens</h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Presale ended successfully. Claim your {tokenSymbol} tokens.
+                  Sale ended successfully. Claim your{' '}
+                  <span className="text-white font-medium">
+                    {compactNumber(parseFloat(formatEther(contribution!.tokenAmount)), 2)}{' '}
+                    {tokenSymbol}
+                  </span>
+                  .
                 </p>
-                <button onClick={handleClaim} disabled={txLoading} className="w-full btn-primary disabled:opacity-50">
-                  {txLoading ? 'Processing...' : `Claim ${parseFloat(formatEther(contribution!.tokenAmount)).toLocaleString()} ${tokenSymbol}`}
+                <button
+                  onClick={handleClaim}
+                  disabled={txLoading}
+                  className="w-full btn-primary"
+                >
+                  {txLoading ? (
+                    <>
+                      <Icon name="spinner" size={14} /> Processing…
+                    </>
+                  ) : (
+                    'Claim tokens'
+                  )}
                 </button>
               </div>
             )}
 
             {/* Refund */}
-            {status === 'ended' && !softcapReached && hasContrib && !alreadyClaimed && (
+            {status === 'ended' && !reached && hasContrib && !alreadyClaimed && (
               <div className="card">
-                <h3 className="font-bold mb-2">Get Refund</h3>
+                <h3 className="font-semibold mb-1">Get refund</h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Softcap not reached. Reclaim your {parseFloat(formatEther(contribution!.amount)).toFixed(4)} BNB.
+                  Softcap not reached. Reclaim your{' '}
+                  <span className="text-white font-medium">
+                    {formatBnb(parseFloat(formatEther(contribution!.amount)))} BNB
+                  </span>
+                  .
                 </p>
-                <button onClick={handleRefund} disabled={txLoading} className="w-full btn-secondary disabled:opacity-50">
-                  {txLoading ? 'Processing...' : 'Refund BNB'}
+                <button
+                  onClick={handleRefund}
+                  disabled={txLoading}
+                  className="w-full btn-secondary"
+                >
+                  {txLoading ? (
+                    <>
+                      <Icon name="spinner" size={14} /> Processing…
+                    </>
+                  ) : (
+                    'Refund BNB'
+                  )}
                 </button>
               </div>
             )}
 
             {/* Owner withdraw */}
-            {isOwner && status === 'ended' && softcapReached && !presale.isFinalized && (
-              <div className="card border-yellow-800">
-                <h3 className="font-bold mb-2 text-yellow-400">Owner: Withdraw Funds</h3>
+            {isOwner && status === 'ended' && reached && !presale.isFinalized && (
+              <div className="card border-amber-500/20 bg-amber-500/5">
+                <h3 className="font-semibold text-amber-300 mb-1">
+                  Owner: withdraw funds
+                </h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Withdraw {raisedEth.toFixed(4)} BNB (minus 2.5% platform fee).
+                  Withdraw {formatBnb(raisedBnb)} BNB minus the 2.5% protocol fee.
                 </p>
-                <button onClick={handleWithdraw} disabled={txLoading} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-lg transition disabled:opacity-50">
-                  {txLoading ? 'Processing...' : 'Withdraw Funds'}
+                <button
+                  onClick={handleWithdraw}
+                  disabled={txLoading}
+                  className="w-full btn-warning"
+                >
+                  {txLoading ? (
+                    <>
+                      <Icon name="spinner" size={14} /> Processing…
+                    </>
+                  ) : (
+                    'Withdraw funds'
+                  )}
                 </button>
-              </div>
-            )}
-
-            {/* Connect wallet prompt */}
-            {!account && status === 'active' && (
-              <div className="card text-center">
-                <p className="text-gray-400 text-sm mb-3">Connect wallet to participate</p>
               </div>
             )}
 
             {/* Already claimed */}
             {alreadyClaimed && (
               <div className="card text-center">
-                <p className="text-green-400 font-medium">✅ You have claimed your tokens</p>
+                <div className="mx-auto h-10 w-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-2">
+                  <Icon name="check" size={18} />
+                </div>
+                <p className="text-sm text-emerald-300">You’ve claimed your tokens.</p>
               </div>
             )}
           </div>
@@ -507,3 +618,17 @@ export default function PresaleDetail() {
     </Layout>
   );
 }
+
+const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <div className="flex justify-between items-center py-3 text-sm gap-3">
+    <dt className="text-gray-400">{label}</dt>
+    <dd className="text-gray-100 font-medium text-right break-all">{value}</dd>
+  </div>
+);
+
+const Row: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <div className="flex justify-between items-center text-sm">
+    <span className="text-gray-400">{label}</span>
+    <span className="text-gray-100 font-medium">{value}</span>
+  </div>
+);

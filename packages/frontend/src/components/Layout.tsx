@@ -1,16 +1,20 @@
 import React from 'react';
 import { Header } from './Header';
 import { Footer } from './Footer';
+import { NetworkBanner } from './ui/NetworkBanner';
 
 interface LayoutProps {
   children: React.ReactNode;
+  /** Set to false on the homepage to render full-bleed hero. */
+  contained?: boolean;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, contained = true }) => {
   return (
-    <div className="flex flex-col min-h-screen bg-gray-950">
+    <div className="flex flex-col min-h-screen app-backdrop">
       <Header />
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+      <NetworkBanner />
+      <main className={`flex-1 w-full ${contained ? 'container-page py-8 sm:py-12' : ''}`}>
         {children}
       </main>
       <Footer />
