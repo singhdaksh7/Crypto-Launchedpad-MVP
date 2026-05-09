@@ -6,7 +6,7 @@ import {
   issueSession,
   readNonce,
 } from '@/lib/server/session';
-import { isExempt, siweMessage } from '@/lib/server/access';
+import { isExempt, isKycVerified, siweMessage } from '@/lib/server/access';
 import type { AccessResponse, VerifyRequest } from '@/lib/access';
 
 export default function handler(
@@ -49,17 +49,22 @@ export default function handler(
   clearNonce(res);
 
   const exempt = isExempt(address);
+  const kyc = isKycVerified(address);
   try {
-    const session = issueSession(res, { address, exempt, paid: false });
+    const session = issueSession(res, { address, exempt, paid: false, kyc });
     // Re-attach the nonce-clear cookie alongside the session cookie.
     clearNonceAlongsideSession(res);
 
+    // Wallet is "unlocked" only when the payment gate AND the KYC gate are passed.
+    const paymentSatisfied = session.exempt; // not paid yet at this step
+    const unlocked = paymentSatisfied && session.kyc;
     return res.status(200).json({
-      unlocked: session.exempt,
-      reason: session.exempt ? 'exempt' : undefined,
+      unlocked,
+      reason: paymentSatisfied ? 'exempt' : undefined,
       address: session.address,
       exempt: session.exempt,
       paid: session.paid,
+      kyc: session.kyc,
     });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Failed to issue session' });

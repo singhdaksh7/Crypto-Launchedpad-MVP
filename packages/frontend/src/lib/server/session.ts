@@ -19,6 +19,9 @@ export interface SessionPayload {
   exempt: boolean;
   /** Whether this address has completed payment. */
   paid: boolean;
+  /** Whether this address is KYC-verified. Re-evaluated on every read so admins
+   *  can flip the env without forcing users to re-sign in. */
+  kyc: boolean;
   /** Issued-at unix seconds. */
   iat: number;
   /** Expiry unix seconds. */

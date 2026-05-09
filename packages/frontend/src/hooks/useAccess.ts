@@ -12,6 +12,7 @@ interface UseAccessState {
   serverAddress?: string;
   exempt: boolean;
   paid: boolean;
+  kyc: boolean;
   error: string | null;
 }
 
@@ -20,6 +21,7 @@ const INITIAL: UseAccessState = {
   unlocked: false,
   exempt: false,
   paid: false,
+  kyc: false,
   error: null,
 };
 
@@ -40,6 +42,7 @@ export function useAccess() {
         serverAddress: data.address,
         exempt: !!data.exempt,
         paid: !!data.paid,
+        kyc: !!data.kyc,
         error: null,
       });
     } catch (err: any) {

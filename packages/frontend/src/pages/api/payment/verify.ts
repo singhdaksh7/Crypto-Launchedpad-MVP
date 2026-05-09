@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { issueSession, readSession } from '@/lib/server/session';
-import { isExempt } from '@/lib/server/access';
+import { isExempt, isKycVerified } from '@/lib/server/access';
 import { getRazorpayConfig, verifyPaymentSignature } from '@/lib/server/razorpay';
 import type { AccessResponse, PaymentVerifyRequest } from '@/lib/access';
 
@@ -42,13 +42,17 @@ export default function handler(
     address: session.address,
     exempt: isExempt(session.address),
     paid: true,
+    kyc: isKycVerified(session.address),
   });
 
+  // Payment is now satisfied, but the gate also requires KYC.
+  const unlocked = reissued.kyc;
   return res.status(200).json({
-    unlocked: true,
+    unlocked,
     reason: reissued.exempt ? 'exempt' : 'paid',
     address: reissued.address,
     exempt: reissued.exempt,
     paid: reissued.paid,
+    kyc: reissued.kyc,
   });
 }

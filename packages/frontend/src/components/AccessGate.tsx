@@ -35,10 +35,11 @@ function loadRazorpay(): Promise<boolean> {
 export const AccessGate: React.FC<AccessGateProps> = ({
   children,
   title = 'Unlock Create Token',
-  description = 'Verify your wallet, then either bypass payment if your address is exempt or complete a one-time ₹1000 payment.',
+  description = 'Verify your wallet, complete payment (or skip if exempt), then pass KYC to start creating tokens.',
 }) => {
   const { account } = useWeb3Store();
   const access = useAccess();
+  const paymentSatisfied = access.exempt || access.paid;
 
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
@@ -139,6 +140,18 @@ export const AccessGate: React.FC<AccessGateProps> = ({
               </p>
             </div>
           </li>
+          <li className="flex gap-3">
+            <span className="h-6 w-6 rounded-full bg-white/5 text-gray-400 text-xs font-semibold flex items-center justify-center shrink-0">
+              3
+            </span>
+            <div>
+              <p className="font-medium">Pass KYC review</p>
+              <p className="text-gray-500 text-xs">
+                Required to launch a token. Approved manually for the MVP — usually
+                same-day.
+              </p>
+            </div>
+          </li>
         </ol>
 
         {access.error && (
@@ -163,6 +176,69 @@ export const AccessGate: React.FC<AccessGateProps> = ({
             </>
           )}
         </button>
+      </div>
+    );
+  }
+
+  /* ── Wallet verified, payment satisfied, KYC pending ─ */
+  if (paymentSatisfied && !access.kyc) {
+    return (
+      <div className="card max-w-xl mx-auto">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center">
+            <Icon name="check" size={14} />
+          </span>
+          <p className="text-sm">
+            {access.exempt ? 'Wallet verified · payment skipped (exempt)' : 'Wallet verified · payment complete'}
+          </p>
+        </div>
+
+        <div className="flex items-start gap-3 mb-5">
+          <span className="h-10 w-10 rounded-full bg-amber-500/15 text-amber-300 flex items-center justify-center shrink-0">
+            <Icon name="shield" size={18} />
+          </span>
+          <div>
+            <h2 className="text-xl font-semibold">KYC pending review</h2>
+            <p className="text-sm text-gray-400 mt-0.5">
+              Token creation is open after KYC approval. Send your wallet address
+              to the team and we'll add you to the verified list — usually same-day.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-surface-2 border border-white/5 rounded-lg p-4 mb-5">
+          <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
+            Your wallet
+          </p>
+          <p className="text-sm font-mono break-all">{access.serverAddress}</p>
+        </div>
+
+        <Alert tone="info" className="mb-5">
+          KYC is mandatory for creators only — buyers don't need it. We re-check
+          your status on every page load, so refresh after the team confirms.
+        </Alert>
+
+        <div className="flex gap-2">
+          <button
+            onClick={access.refresh}
+            disabled={access.loading}
+            className="btn-primary flex-1 justify-center"
+          >
+            {access.loading ? (
+              <>
+                <Icon name="spinner" size={14} /> Checking…
+              </>
+            ) : (
+              <>
+                <Icon name="refresh" size={14} />
+                Refresh status
+              </>
+            )}
+          </button>
+          <button onClick={access.logout} className="btn-ghost" title="Sign out of this device">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       </div>
     );
   }

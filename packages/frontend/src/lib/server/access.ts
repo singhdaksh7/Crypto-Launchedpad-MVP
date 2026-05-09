@@ -17,6 +17,25 @@ export function isExempt(address: string): boolean {
   return getExemptAddresses().has(address.toLowerCase());
 }
 
+/**
+ * Addresses approved through KYC. Manually managed via the KYC_VERIFIED_ADDRESSES
+ * env var for MVP; swap this lookup for a Sumsub/Persona/etc. call later without
+ * touching call sites — the function signature stays the same.
+ */
+export function getKycVerifiedAddresses(): Set<string> {
+  const raw = process.env.KYC_VERIFIED_ADDRESSES || '';
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => /^0x[0-9a-f]{40}$/.test(s)),
+  );
+}
+
+export function isKycVerified(address: string): boolean {
+  return getKycVerifiedAddresses().has(address.toLowerCase());
+}
+
 export function getPaymentAmountInr(): number {
   const raw = parseInt(process.env.PAYMENT_AMOUNT_INR || '1000', 10);
   if (!Number.isFinite(raw) || raw <= 0) return 1000;

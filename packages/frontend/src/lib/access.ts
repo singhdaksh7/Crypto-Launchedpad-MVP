@@ -22,6 +22,8 @@ export interface AccessResponse {
   /** Whether the address has paid (server-truth, useful for UI). */
   paid?: boolean;
   exempt?: boolean;
+  /** Whether the address is KYC-verified (server-truth). */
+  kyc?: boolean;
 }
 
 export interface OrderResponse {
