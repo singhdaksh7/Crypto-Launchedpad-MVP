@@ -17,10 +17,18 @@ async function main() {
   const launchpadAddress = await launchpad.getAddress();
   console.log("Launchpad deployed to:", launchpadAddress);
 
+  // Deploy Vesting (also serves as the liquidity locker)
+  const Vesting = await hre.ethers.getContractFactory("Vesting");
+  const vesting = await Vesting.deploy();
+  await vesting.waitForDeployment();
+  const vestingAddress = await vesting.getAddress();
+  console.log("Vesting deployed to:", vestingAddress);
+
   // Save addresses
   const addresses = {
     TokenFactory: tokenFactoryAddress,
     Launchpad: launchpadAddress,
+    Vesting: vestingAddress,
     network: hre.network.name,
     timestamp: new Date().toISOString(),
   };
