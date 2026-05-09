@@ -30,6 +30,11 @@ contract Launchpad is Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(address => UserContribution)) public contributions;
     mapping(uint256 => address[]) public presaleContributors;
 
+    /// Cumulative token amount the presale owner has deposited into this contract
+    /// for a given presaleId. Used to enforce that buys can never exceed the funded
+    /// supply, so claims can never fail on a properly behaved presale.
+    mapping(uint256 => uint256) public presaleTokensFunded;
+
     uint256 public presaleCounter;
     uint256 public platformFee; // in basis points (e.g., 250 = 2.5%)
     address public feeRecipient;
@@ -54,6 +59,7 @@ contract Launchpad is Ownable, ReentrancyGuard {
     event PresaleFinalized(uint256 indexed presaleId, bool success);
     event TokensClaimed(uint256 indexed presaleId, address indexed buyer, uint256 amount);
     event FundsWithdrawn(uint256 indexed presaleId, uint256 amount);
+    event PresaleFunded(uint256 indexed presaleId, address indexed funder, uint256 amount);
 
     constructor() Ownable() {
         platformFee = 250; // 2.5%
@@ -122,6 +128,14 @@ contract Launchpad is Ownable, ReentrancyGuard {
 
         uint256 tokenAmount = (msg.value * 1e18) / config.tokenPrice;
 
+        // Defense in depth: never accept BNB unless the seller has deposited
+        // enough tokens to cover this buy plus everything already committed.
+        uint256 alreadyCommitted = (config.totalRaised * 1e18) / config.tokenPrice;
+        require(
+            presaleTokensFunded[presaleId] >= alreadyCommitted + tokenAmount,
+            "Presale underfunded"
+        );
+
         if (userContrib.amount == 0) {
             presaleContributors[presaleId].push(msg.sender);
         }
@@ -187,6 +201,51 @@ contract Launchpad is Ownable, ReentrancyGuard {
 
         (bool success, ) = payable(msg.sender).call{value: userContrib.amount}("");
         require(success, "Refund failed");
+    }
+
+    /// @notice Deposit tokens into the presale so buyers can later claim.
+    /// @dev Caller must approve the Launchpad for `amount` on the presale token first.
+    ///      Anyone can call this, but funds are accounted to `presaleId`.
+    ///      Restricted to the presale owner to keep accounting clean and to prevent
+    ///      grief-funding by third parties.
+    function fundPresale(uint256 presaleId, uint256 amount) public nonReentrant {
+        PresaleConfig storage config = presales[presaleId];
+        require(config.tokenAddress != address(0), "Presale does not exist");
+        require(msg.sender == config.owner, "Only presale owner");
+        require(amount > 0, "Amount must be > 0");
+        require(!config.isFinalized, "Presale already finalized");
+
+        presaleTokensFunded[presaleId] += amount;
+
+        IERC20 token = IERC20(config.tokenAddress);
+        require(
+            token.transferFrom(msg.sender, address(this), amount),
+            "Token transferFrom failed"
+        );
+
+        emit PresaleFunded(presaleId, msg.sender, amount);
+    }
+
+    /// @notice Worst-case token amount required to fully fill the presale at hardcap.
+    function getRequiredTokens(uint256 presaleId) public view returns (uint256) {
+        PresaleConfig storage config = presales[presaleId];
+        if (config.tokenPrice == 0) return 0;
+        return (config.hardcap * 1e18) / config.tokenPrice;
+    }
+
+    /// @notice Convenience view: (required at hardcap, deposited so far, already committed to buyers).
+    function getFundingStatus(uint256 presaleId)
+        public
+        view
+        returns (uint256 required, uint256 funded, uint256 committed)
+    {
+        PresaleConfig storage config = presales[presaleId];
+        if (config.tokenPrice == 0) {
+            return (0, presaleTokensFunded[presaleId], 0);
+        }
+        required = (config.hardcap * 1e18) / config.tokenPrice;
+        funded = presaleTokensFunded[presaleId];
+        committed = (config.totalRaised * 1e18) / config.tokenPrice;
     }
 
     function getPresaleDetails(uint256 presaleId)

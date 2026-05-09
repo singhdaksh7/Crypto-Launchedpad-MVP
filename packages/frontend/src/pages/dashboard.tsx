@@ -26,6 +26,9 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Alert } from '@/components/ui/Alert';
 import { AddressLink } from '@/components/ui/AddressLink';
+import { FundingBadge } from '@/components/ui/FundingBadge';
+import { FundingPanel } from '@/components/FundingPanel';
+import { usePresaleFunding } from '@/hooks/usePresaleFunding';
 
 interface MyPresale extends PresaleConfig {
   id: number;
@@ -94,7 +97,15 @@ export default function Dashboard() {
   const [submitted, setSubmitted] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState<{ msg: string; hash?: string } | null>(null);
+  const [formSuccess, setFormSuccess] = useState<
+    | {
+        msg: string;
+        hash?: string;
+        presaleId: number;
+        tokenAddress: string;
+      }
+    | null
+  >(null);
 
   useEffect(() => {
     if (router.query.token && typeof router.query.token === 'string') {
@@ -137,9 +148,15 @@ export default function Dashboard() {
       );
       const receipt = await tx.wait();
 
+      // Resolve the new presale id from the post-call counter.
+      const counter: bigint = await contract.presaleCounter();
+      const newId = Math.max(0, Number(counter) - 1);
+
       setFormSuccess({
-        msg: 'Presale created. View it from My Presales.',
+        msg: 'Presale created. Fund it with tokens so buyers can claim later.',
         hash: receipt?.hash || tx.hash,
+        presaleId: newId,
+        tokenAddress: formData.tokenAddress,
       });
       setFormData(EMPTY_FORM);
       setSubmitted(false);
@@ -299,30 +316,43 @@ export default function Dashboard() {
           <div className="space-y-4">
             {formError && <Alert tone="error" onDismiss={() => setFormError(null)}>{formError}</Alert>}
             {formSuccess && (
-              <Alert
-                tone="success"
-                onDismiss={() => setFormSuccess(null)}
-                title={formSuccess.msg}
-              >
-                <div className="flex flex-wrap gap-3 items-center mt-1">
-                  <button
-                    onClick={() => setTab('manage')}
-                    className="underline underline-offset-2 text-sm"
-                  >
-                    View my presales
-                  </button>
-                  {formSuccess.hash && (
-                    <a
-                      href={txUrl(formSuccess.hash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline underline-offset-2 text-sm inline-flex items-center gap-1"
+              <>
+                <Alert
+                  tone="success"
+                  onDismiss={() => setFormSuccess(null)}
+                  title={formSuccess.msg}
+                >
+                  <div className="flex flex-wrap gap-3 items-center mt-1">
+                    <Link
+                      href={`/presale/${formSuccess.presaleId}`}
+                      className="underline underline-offset-2 text-sm"
                     >
-                      View transaction <Icon name="external" size={12} />
-                    </a>
-                  )}
-                </div>
-              </Alert>
+                      Open presale page
+                    </Link>
+                    <button
+                      onClick={() => setTab('manage')}
+                      className="underline underline-offset-2 text-sm"
+                    >
+                      View my presales
+                    </button>
+                    {formSuccess.hash && (
+                      <a
+                        href={txUrl(formSuccess.hash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2 text-sm inline-flex items-center gap-1"
+                      >
+                        View transaction <Icon name="external" size={12} />
+                      </a>
+                    )}
+                  </div>
+                </Alert>
+                <FundingPanel
+                  presaleId={formSuccess.presaleId}
+                  tokenAddress={formSuccess.tokenAddress}
+                  isOwner
+                />
+              </>
             )}
 
             <form onSubmit={handleCreatePresale} className="card space-y-5">
@@ -551,6 +581,9 @@ const ManageCard: React.FC<{
   const reached = softcapReached(presale);
   const pct = progressPct(presale.totalRaised, presale.hardcap);
 
+  const funding = usePresaleFunding(presale.id, presale.tokenAddress);
+  const [fundOpen, setFundOpen] = useState(false);
+
   return (
     <div className="card space-y-4">
       <div className="flex justify-between items-start gap-3">
@@ -567,7 +600,10 @@ const ManageCard: React.FC<{
             Presale #{presale.id} · <AddressLink address={presale.tokenAddress} variant="token" />
           </div>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex flex-col items-end gap-1.5">
+          <StatusBadge status={status} />
+          <FundingBadge status={funding.status} loading={funding.loading} />
+        </div>
       </div>
 
       <div>
@@ -587,6 +623,17 @@ const ManageCard: React.FC<{
         <Link href={`/presale/${presale.id}`} className="btn-secondary flex-1 justify-center">
           View
         </Link>
+        {!presale.isFinalized && funding.status !== 'funded' && (
+          <button
+            onClick={() => setFundOpen((o) => !o)}
+            className={`flex-1 justify-center ${
+              funding.status === 'unfunded' ? 'btn-warning' : 'btn-secondary'
+            }`}
+          >
+            <Icon name={fundOpen ? 'close' : 'plus'} size={14} />
+            {fundOpen ? 'Close funding' : 'Fund presale'}
+          </button>
+        )}
         {status === 'ended' && reached && !presale.isFinalized && (
           <button
             onClick={() => onWithdraw(presale.id)}
@@ -603,6 +650,16 @@ const ManageCard: React.FC<{
           </button>
         )}
       </div>
+
+      {fundOpen && (
+        <FundingPanel
+          presaleId={presale.id}
+          tokenAddress={presale.tokenAddress}
+          tokenSymbol={presale.tokenSymbol}
+          isOwner
+          className="mt-2"
+        />
+      )}
     </div>
   );
 };

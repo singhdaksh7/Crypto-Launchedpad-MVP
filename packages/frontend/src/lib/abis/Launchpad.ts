@@ -96,4 +96,50 @@ export const LAUNCHPAD_ABI = [
     stateMutability: "nonpayable",
     type: "function",
   },
+  // ── Funding flow ────────────────────────────────────────────
+  {
+    inputs: [
+      { internalType: "uint256", name: "presaleId", type: "uint256" },
+      { internalType: "uint256", name: "amount", type: "uint256" },
+    ],
+    name: "fundPresale",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "presaleId", type: "uint256" }],
+    name: "getRequiredTokens",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "presaleId", type: "uint256" }],
+    name: "getFundingStatus",
+    outputs: [
+      { internalType: "uint256", name: "required", type: "uint256" },
+      { internalType: "uint256", name: "funded", type: "uint256" },
+      { internalType: "uint256", name: "committed", type: "uint256" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    name: "presaleTokensFunded",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: "uint256", name: "presaleId", type: "uint256" },
+      { indexed: true, internalType: "address", name: "funder", type: "address" },
+      { indexed: false, internalType: "uint256", name: "amount", type: "uint256" },
+    ],
+    name: "PresaleFunded",
+    type: "event",
+  },
 ];

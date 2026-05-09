@@ -7,3 +7,4 @@ export { CopyButton } from './CopyButton';
 export { AddressLink } from './AddressLink';
 export { Alert } from './Alert';
 export { NetworkBanner } from './NetworkBanner';
+export { FundingBadge } from './FundingBadge';

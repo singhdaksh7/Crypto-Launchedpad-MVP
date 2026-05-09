@@ -24,6 +24,9 @@ import { Countdown } from '@/components/ui/Countdown';
 import { Stat } from '@/components/ui/Stat';
 import { AddressLink } from '@/components/ui/AddressLink';
 import { Alert } from '@/components/ui/Alert';
+import { FundingBadge } from '@/components/ui/FundingBadge';
+import { FundingPanel } from '@/components/FundingPanel';
+import { usePresaleFunding } from '@/hooks/usePresaleFunding';
 
 interface UserContribution {
   amount: bigint;
@@ -48,6 +51,7 @@ export default function PresaleDetail() {
   const [buyAmount, setBuyAmount] = useState('');
 
   const presaleId = id ? Number(id) : null;
+  const funding = usePresaleFunding(presaleId, presale?.tokenAddress ?? null);
 
   const fetchData = useCallback(async () => {
     if (presaleId === null || isNaN(presaleId)) return;
@@ -257,11 +261,20 @@ export default function PresaleDetail() {
 
   const buyValue = parseFloat(buyAmount || '0');
   const previewTokens = isFinite(buyValue) && buyValue > 0 ? buyValue * tokensPerBnb : 0;
+  // Tokens this buy would commit, in token-wei.
+  const buyTokensWei =
+    presale.tokenPrice > 0n && buyValue > 0
+      ? (ethers.parseEther(buyValue.toString()) * 10n ** 18n) / presale.tokenPrice
+      : 0n;
+  const fundedHeadroom =
+    funding.funded > funding.committed ? funding.funded - funding.committed : 0n;
+  const buyExceedsFunding = buyTokensWei > 0n && buyTokensWei > fundedHeadroom;
   const buyDisabled =
     txLoading ||
     !buyAmount ||
     buyValue <= 0 ||
-    buyValue > effectiveMaxBnb;
+    buyValue > effectiveMaxBnb ||
+    buyExceedsFunding;
 
   return (
     <Layout>
@@ -294,7 +307,10 @@ export default function PresaleDetail() {
                     <AddressLink address={presale.tokenAddress} variant="token" />
                   </div>
                 </div>
-                <StatusBadge status={status} />
+                <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end">
+                  <StatusBadge status={status} />
+                  <FundingBadge status={funding.status} loading={funding.loading} />
+                </div>
               </div>
 
               {/* Progress */}
@@ -430,6 +446,18 @@ export default function PresaleDetail() {
               </Alert>
             )}
 
+            {/* Funding panel: owner always sees the deposit form, others see the
+                read-only state only when the presale isn't fully funded. */}
+            {presale.tokenAddress && (isOwner || funding.status !== 'funded') && (
+              <FundingPanel
+                presaleId={presaleId!}
+                tokenAddress={presale.tokenAddress}
+                tokenSymbol={tokenSymbol}
+                isOwner={isOwner}
+                onChange={fetchData}
+              />
+            )}
+
             {/* Connect prompt */}
             {!account && (
               <div className="card text-center">
@@ -480,7 +508,12 @@ export default function PresaleDetail() {
             {status === 'active' && account && (
               <div className="card">
                 <h3 className="font-semibold mb-3">Buy {tokenSymbol || 'tokens'}</h3>
-                {effectiveMaxBnb <= 0 ? (
+                {funding.status === 'unfunded' ? (
+                  <Alert tone="error">
+                    This presale isn’t funded yet. Buys are blocked until the owner
+                    deposits {tokenSymbol || 'tokens'}.
+                  </Alert>
+                ) : effectiveMaxBnb <= 0 ? (
                   <p className="text-sm text-gray-400">
                     You’ve reached your wallet limit, or the hardcap is full.
                   </p>
@@ -517,6 +550,12 @@ export default function PresaleDetail() {
                         </button>
                       ))}
                     </div>
+                    {buyExceedsFunding && (
+                      <p className="field-error mt-2">
+                        Not enough deposited tokens to cover this buy. Try a smaller
+                        amount.
+                      </p>
+                    )}
                     <button
                       onClick={handleBuy}
                       disabled={buyDisabled}

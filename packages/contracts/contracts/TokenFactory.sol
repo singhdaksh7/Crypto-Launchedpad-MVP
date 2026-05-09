@@ -21,7 +21,12 @@ contract TokenFactory {
         string memory symbol,
         uint256 initialSupply
     ) public returns (address) {
-        LaunchpadToken token = new LaunchpadToken(name, symbol, initialSupply);
+        LaunchpadToken token = new LaunchpadToken(
+            name,
+            symbol,
+            initialSupply,
+            msg.sender
+        );
         address tokenAddress = address(token);
 
         createdTokens.push(tokenAddress);

@@ -1,72 +1,193 @@
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
-describe("Launchpad Contracts", function () {
-  let tokenFactory, launchpad, token, owner, user1, user2;
+describe("Launchpad", function () {
+  let tokenFactory, launchpad, owner, seller, buyer, other;
+
+  async function createToken(symbol = "TEST", supply = "1000000") {
+    const tx = await tokenFactory
+      .connect(seller)
+      .createToken("Test", symbol, ethers.parseEther(supply));
+    const receipt = await tx.wait();
+    // Pull the token address from the factory's TokenCreated event.
+    const evt = receipt.logs
+      .map((l) => {
+        try {
+          return tokenFactory.interface.parseLog(l);
+        } catch {
+          return null;
+        }
+      })
+      .find((p) => p && p.name === "TokenCreated");
+    const tokenAddress = evt.args.tokenAddress;
+    return ethers.getContractAt("LaunchpadToken", tokenAddress);
+  }
+
+  async function createPresale(token, opts = {}) {
+    const now = await time.latest();
+    const startTime = opts.startTime ?? now + 60;
+    const endTime = opts.endTime ?? startTime + 3600;
+    const tokenPrice = opts.tokenPrice ?? ethers.parseEther("0.0001"); // 0.0001 BNB per token
+    const softcap = opts.softcap ?? ethers.parseEther("1");
+    const hardcap = opts.hardcap ?? ethers.parseEther("10");
+    const maxBuy = opts.maxBuy ?? ethers.parseEther("5");
+
+    const tx = await launchpad
+      .connect(seller)
+      .createPresale(
+        await token.getAddress(),
+        tokenPrice,
+        softcap,
+        hardcap,
+        startTime,
+        endTime,
+        maxBuy
+      );
+    const receipt = await tx.wait();
+    return { presaleId: 0, startTime, endTime, hardcap, tokenPrice };
+  }
 
   beforeEach(async function () {
-    [owner, user1, user2] = await ethers.getSigners();
+    [owner, seller, buyer, other] = await ethers.getSigners();
 
-    // Deploy TokenFactory
     const TokenFactory = await ethers.getContractFactory("TokenFactory");
     tokenFactory = await TokenFactory.deploy();
     await tokenFactory.waitForDeployment();
 
-    // Deploy Launchpad
     const Launchpad = await ethers.getContractFactory("Launchpad");
     launchpad = await Launchpad.deploy();
     await launchpad.waitForDeployment();
   });
 
-  describe("TokenFactory", function () {
-    it("Should create a token", async function () {
-      const tx = await tokenFactory.createToken("Test Token", "TEST", ethers.parseEther("1000000"));
-      await tx.wait();
+  describe("Funding flow", function () {
+    it("getRequiredTokens returns hardcap / tokenPrice in token units", async function () {
+      const token = await createToken();
+      await createPresale(token); // hardcap 10 BNB, price 0.0001 BNB/token => 100k tokens
 
-      const tokens = await tokenFactory.getCreatedTokens();
-      expect(tokens.length).to.equal(1);
+      const required = await launchpad.getRequiredTokens(0);
+      expect(required).to.equal(ethers.parseEther("100000"));
     });
 
-    it("Should track token creator", async function () {
-      await tokenFactory.createToken("Test Token", "TEST", ethers.parseEther("1000000"));
-      const tokens = await tokenFactory.getTokensByCreator(owner.address);
-      expect(tokens.length).to.equal(1);
-    });
-  });
+    it("rejects funding from non-owner", async function () {
+      const token = await createToken();
+      await createPresale(token);
 
-  describe("Launchpad", function () {
-    beforeEach(async function () {
-      // Create a token first
-      const tx = await tokenFactory.createToken(
-        "Launch Token",
-        "LAUNCH",
-        ethers.parseEther("1000000")
-      );
-      const receipt = await tx.wait();
-      
-      const LaunchpadToken = await ethers.getContractFactory("LaunchpadToken");
-      token = LaunchpadToken.attach(
-        "0x5FbDB2315678afccb333f8a9c612f69c5a55fb7d" // This would be the actual address from deploy
-      );
+      await token
+        .connect(seller)
+        .transfer(buyer.address, ethers.parseEther("1000"));
+      await token
+        .connect(buyer)
+        .approve(await launchpad.getAddress(), ethers.parseEther("1000"));
+
+      await expect(
+        launchpad.connect(buyer).fundPresale(0, ethers.parseEther("1000"))
+      ).to.be.revertedWith("Only presale owner");
     });
 
-    it("Should create a presale", async function () {
-      const now = Math.floor(Date.now() / 1000);
-      const startTime = now + 3600; // 1 hour from now
-      const endTime = now + 7200; // 2 hours from now
+    it("blocks buys when underfunded, allows them after funding", async function () {
+      const token = await createToken();
+      const { startTime } = await createPresale(token);
 
-      const tx = await launchpad.createPresale(
-        token.address || "0x" + "0".repeat(40),
-        ethers.parseEther("0.0001"),
-        ethers.parseEther("1"),
-        ethers.parseEther("10"),
-        startTime,
-        endTime,
-        ethers.parseEther("1")
+      await time.increaseTo(startTime + 1);
+
+      // No funding yet — buy must revert.
+      await expect(
+        launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Presale underfunded");
+
+      // Fund 10k tokens — enough for 1 BNB buy (which needs 10k tokens at 0.0001 BNB/token).
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("10000"));
+      await expect(launchpad.connect(seller).fundPresale(0, ethers.parseEther("10000")))
+        .to.emit(launchpad, "PresaleFunded")
+        .withArgs(0, seller.address, ethers.parseEther("10000"));
+
+      // Buy 1 BNB now succeeds.
+      await expect(
+        launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("1") })
+      ).to.emit(launchpad, "TokensPurchased");
+    });
+
+    it("getFundingStatus tracks required, funded, committed", async function () {
+      const token = await createToken();
+      const { startTime } = await createPresale(token);
+
+      let s = await launchpad.getFundingStatus(0);
+      expect(s.required).to.equal(ethers.parseEther("100000"));
+      expect(s.funded).to.equal(0n);
+      expect(s.committed).to.equal(0n);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await time.increaseTo(startTime + 1);
+      await launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("2") });
+
+      s = await launchpad.getFundingStatus(0);
+      expect(s.funded).to.equal(ethers.parseEther("100000"));
+      expect(s.committed).to.equal(ethers.parseEther("20000")); // 2 BNB / 0.0001 = 20k tokens
+    });
+
+    it("happy path: fund, buy, claim", async function () {
+      const token = await createToken();
+      const { startTime, endTime } = await createPresale(token);
+
+      // Owner funds enough for full hardcap.
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      // Buyer buys past softcap.
+      await time.increaseTo(startTime + 1);
+      await launchpad
+        .connect(buyer)
+        .buyTokens(0, { value: ethers.parseEther("2") });
+
+      // End the sale and claim.
+      await time.increaseTo(endTime + 1);
+      await expect(launchpad.connect(buyer).claimTokens(0)).to.emit(
+        launchpad,
+        "TokensClaimed"
       );
 
-      await tx.wait();
-      const presale = await launchpad.getPresaleDetails(0);
-      expect(presale.isActive).to.equal(true);
+      expect(await token.balanceOf(buyer.address)).to.equal(
+        ethers.parseEther("20000")
+      );
+    });
+
+    it("rejects fundPresale on non-existent presale", async function () {
+      await expect(
+        launchpad.connect(seller).fundPresale(999, ethers.parseEther("1"))
+      ).to.be.revertedWith("Presale does not exist");
+    });
+
+    it("blocks funding after finalization", async function () {
+      const token = await createToken();
+      const { startTime, endTime } = await createPresale(token);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await time.increaseTo(startTime + 1);
+      await launchpad
+        .connect(buyer)
+        .buyTokens(0, { value: ethers.parseEther("2") });
+      await time.increaseTo(endTime + 1);
+      await launchpad.connect(seller).withdrawFunds(0);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("1"));
+      await expect(
+        launchpad.connect(seller).fundPresale(0, ethers.parseEther("1"))
+      ).to.be.revertedWith("Presale already finalized");
     });
   });
 });
