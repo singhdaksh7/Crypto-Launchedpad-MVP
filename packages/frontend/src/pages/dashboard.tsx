@@ -179,7 +179,20 @@ export default function Dashboard() {
       }
       const all = await Promise.all(
         Array.from({ length: total }, (_, i) =>
-          contract.getPresaleDetails(i).then((d: PresaleConfig) => ({ ...d, id: i })),
+          contract.getPresaleDetails(i).then((d: PresaleConfig) => ({
+            id: i,
+            tokenAddress: d.tokenAddress,
+            owner: d.owner,
+            tokenPrice: d.tokenPrice,
+            softcap: d.softcap,
+            hardcap: d.hardcap,
+            startTime: d.startTime,
+            endTime: d.endTime,
+            maxBuyPerUser: d.maxBuyPerUser,
+            totalRaised: d.totalRaised,
+            isActive: d.isActive,
+            isFinalized: d.isFinalized,
+          })),
         ),
       );
       const mine = all.filter(

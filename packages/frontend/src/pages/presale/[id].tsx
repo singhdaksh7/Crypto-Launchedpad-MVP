@@ -57,8 +57,20 @@ export default function PresaleDetail() {
       const { launchpad } = getContractAddresses();
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, provider);
 
-      const details: PresaleConfig = await contract.getPresaleDetails(presaleId);
-      setPresale(details);
+      const d = await contract.getPresaleDetails(presaleId);
+      setPresale({
+        tokenAddress: d.tokenAddress,
+        owner: d.owner,
+        tokenPrice: d.tokenPrice,
+        softcap: d.softcap,
+        hardcap: d.hardcap,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        maxBuyPerUser: d.maxBuyPerUser,
+        totalRaised: d.totalRaised,
+        isActive: d.isActive,
+        isFinalized: d.isFinalized,
+      });
 
       try {
         const token = new ethers.Contract(details.tokenAddress, ERC20_ABI, provider);
@@ -70,8 +82,12 @@ export default function PresaleDetail() {
       }
 
       if (account) {
-        const c: UserContribution = await contract.getUserContribution(presaleId, account);
-        setContribution(c);
+        const c = await contract.getUserContribution(presaleId, account);
+        setContribution({
+          amount: c.amount,
+          tokenAmount: c.tokenAmount,
+          claimed: c.claimed,
+        });
       } else {
         setContribution(null);
       }

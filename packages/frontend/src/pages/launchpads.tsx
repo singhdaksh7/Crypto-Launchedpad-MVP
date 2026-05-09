@@ -146,7 +146,22 @@ export default function Launchpads() {
           } catch {
             /* token may not be ERC20 metadata-compliant */
           }
-          return { ...d, id, tokenName, tokenSymbol } as PresaleData;
+          return {
+            id,
+            tokenAddress: d.tokenAddress,
+            owner: d.owner,
+            tokenPrice: d.tokenPrice,
+            softcap: d.softcap,
+            hardcap: d.hardcap,
+            startTime: d.startTime,
+            endTime: d.endTime,
+            maxBuyPerUser: d.maxBuyPerUser,
+            totalRaised: d.totalRaised,
+            isActive: d.isActive,
+            isFinalized: d.isFinalized,
+            tokenName,
+            tokenSymbol,
+          } as PresaleData;
         }),
       );
 
