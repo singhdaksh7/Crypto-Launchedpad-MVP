@@ -13,8 +13,12 @@ export const getContractAddresses = () => {
   return {
     launchpad: process.env.NEXT_PUBLIC_LAUNCHPAD_ADDRESS || '0x0000000000000000000000000000000000000000',
     tokenFactory: process.env.NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS || '0x0000000000000000000000000000000000000000',
+    vesting: process.env.NEXT_PUBLIC_VESTING_ADDRESS || '0x0000000000000000000000000000000000000000',
   };
 };
+
+export const isZeroAddress = (address: string) =>
+  /^0x0+$/i.test(address);
 
 export const isValidAddress = (address: string) => {
   return ethers.isAddress(address);

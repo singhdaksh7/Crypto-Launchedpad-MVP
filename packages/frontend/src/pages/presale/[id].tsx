@@ -410,7 +410,18 @@ export default function PresaleDetail() {
                 />
                 <DetailRow
                   label="Owner"
-                  value={<AddressLink address={presale.owner} />}
+                  value={
+                    <span className="inline-flex items-center gap-2 flex-wrap justify-end">
+                      <AddressLink address={presale.owner} />
+                      <Link
+                        href={`/vesting?owner=${presale.owner}`}
+                        className="text-[11px] uppercase tracking-wider text-sky-300 hover:text-sky-200 inline-flex items-center gap-1"
+                        title="View this creator's vesting and liquidity locks"
+                      >
+                        <Icon name="lock" size={11} /> Locks
+                      </Link>
+                    </span>
+                  }
                 />
                 <DetailRow
                   label="Start"

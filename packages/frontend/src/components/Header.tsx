@@ -10,6 +10,7 @@ const links = [
   { href: '/launchpads', label: 'Launchpads' },
   { href: '/create-token', label: 'Create Token' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/vesting', label: 'Vesting' },
 ];
 
 const Logo: React.FC = () => (
