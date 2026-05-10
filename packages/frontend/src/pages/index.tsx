@@ -129,25 +129,25 @@ export default function Home() {
       {/* ── Hero ───────────────────────────────────────── */}
       <section className="relative overflow-hidden">
         <div
-          className="absolute inset-0 -z-10 opacity-[0.4]"
+          className="absolute inset-0 -z-10 opacity-[0.25]"
           style={{
             backgroundImage:
-              'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0)',
+              'radial-gradient(circle at 1px 1px, rgba(0, 247, 255, 0.15) 1px, transparent 0)',
             backgroundSize: '24px 24px',
             maskImage: 'radial-gradient(60% 60% at 50% 0%, #000 50%, transparent 100%)',
             WebkitMaskImage:
               'radial-gradient(60% 60% at 50% 0%, #000 50%, transparent 100%)',
           }}
         />
-        <div className="container-page pt-16 sm:pt-24 pb-16 text-center">
+        <div className="container-page pt-24 sm:pt-32 pb-16 text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300 mb-6 animate-fade-in">
             <span className="pulse-dot" />
             Live on {networkLabel(97)}
           </div>
 
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.05] mb-5">
+          <h1 className="text-4xl sm:text-5xl lg:text-7xl font-semibold tracking-tight leading-[1.05] mb-5">
             Launch tokens on{' '}
-            <span className="text-gradient">BNB&nbsp;Chain</span>,
+            <span className="text-gradient drop-shadow-[0_0_15px_rgba(0,247,255,0.3)]">BNB&nbsp;Chain</span>,
             <br className="hidden sm:block" /> no code required.
           </h1>
           <p className="text-base sm:text-lg text-gray-400 max-w-2xl mx-auto mb-8">
@@ -269,11 +269,11 @@ export default function Home() {
 
       {/* ── Final CTA ──────────────────────────────────── */}
       <section className="container-page py-20 border-t border-white/5">
-        <div className="card border-white/10 text-center max-w-3xl mx-auto bg-gradient-to-br from-primary-500/10 to-secondary-500/10">
-          <h2 className="text-2xl sm:text-3xl font-semibold mb-3">
+        <div className="card border-white/10 text-center max-w-3xl mx-auto bg-gradient-to-br from-primary-500/5 to-secondary-500/5 shadow-glow">
+          <h2 className="text-2xl sm:text-4xl font-semibold mb-4 drop-shadow-[0_0_10px_rgba(0,247,255,0.2)]">
             Ready to launch your token?
           </h2>
-          <p className="text-gray-400 mb-6 max-w-md mx-auto">
+          <p className="text-gray-400 mb-8 max-w-md mx-auto text-lg">
             Deploy in under two minutes. No fees beyond network gas — and a 2.5%
             protocol fee only on successful raises.
           </p>

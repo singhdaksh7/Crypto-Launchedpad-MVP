@@ -1,0 +1,5 @@
+[33m0740303[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m feat: access gate with wallet exemption and Razorpay payment
+[33m315decf[m feat: presale funding flow + factory mint-to-creator fix
+[33m0d7f19a[m fix: copy ethers v6 Result fields explicitly to avoid null BigNumberish
+[33m97472f0[m feat(frontend): polished UI, trust signals, better wallet UX
+[33m8cd4534[m feat: presale detail page, live stats, mobile nav, and dashboard improvements

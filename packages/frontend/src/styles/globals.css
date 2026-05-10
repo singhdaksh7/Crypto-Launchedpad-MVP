@@ -37,8 +37,8 @@ body {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(60rem 40rem at 80% -10%, rgba(168, 85, 247, 0.10), transparent 60%),
-    radial-gradient(50rem 30rem at -10% 10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(60rem 40rem at 80% -10%, rgba(0, 188, 212, 0.10), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 10%, rgba(0, 247, 255, 0.10), transparent 60%),
     var(--bg);
   pointer-events: none;
 }
@@ -46,7 +46,7 @@ body {
 /* ── Buttons ────────────────────────────────────── */
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full font-medium text-sm
            transition-all duration-150 select-none disabled:opacity-50 disabled:cursor-not-allowed
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
            focus-visible:ring-offset-2 focus-visible:ring-offset-surface;
@@ -76,11 +76,11 @@ body {
 
   /* ── Cards ──────────────────────────────────────── */
   .card {
-    @apply bg-surface-1 border border-white/5 rounded-xl p-6 shadow-soft;
+    @apply bg-surface-1 border border-white/5 rounded-3xl p-6 shadow-soft;
   }
 
   .card-tight {
-    @apply bg-surface-1 border border-white/5 rounded-xl p-4 shadow-soft;
+    @apply bg-surface-1 border border-white/5 rounded-2xl p-4 shadow-soft;
   }
 
   .card-hover {
@@ -89,7 +89,7 @@ body {
 
   /* ── Form fields ───────────────────────────────── */
   .input-field {
-    @apply w-full px-3.5 py-2.5 bg-surface-2 border border-white/10 rounded-lg
+    @apply w-full px-4 py-3 bg-surface-2 border border-white/10 rounded-full
            text-white placeholder:text-gray-500
            focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30
            transition-colors;
@@ -127,7 +127,7 @@ body {
   }
 
   .text-gradient {
-    background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+    background: linear-gradient(135deg, #00f7ff 0%, #00bcd4 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;

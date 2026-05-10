@@ -15,8 +15,8 @@ const links = [
 
 const Logo: React.FC = () => (
   <Link href="/" className="flex items-center gap-2 shrink-0 group">
-    <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-brand-gradient shadow-glow">
-      <Icon name="rocket" size={16} className="text-white" />
+    <span className="relative flex h-8 w-8 items-center justify-center rounded-full bg-brand-gradient shadow-glow">
+      <Icon name="rocket" size={16} className="text-black" />
     </span>
     <div className="leading-tight">
       <p className="font-semibold tracking-tight">Launchpad</p>
@@ -35,8 +35,8 @@ export const Header: React.FC = () => {
     pathname === href || (href !== '/' && pathname.startsWith(href));
 
   return (
-    <header className="sticky top-0 z-40 backdrop-blur-md bg-surface/80 border-b border-white/5">
-      <div className="container-page py-3 flex items-center justify-between gap-4">
+    <header className="sticky top-4 z-40 mx-auto max-w-5xl backdrop-blur-lg bg-surface/60 border border-white/10 rounded-full shadow-soft transition-all duration-300 w-[calc(100%-2rem)]">
+      <div className="px-6 py-3 flex items-center justify-between gap-4">
         <Logo />
 
         {/* Desktop nav */}
@@ -75,7 +75,7 @@ export const Header: React.FC = () => {
 
       {/* Mobile dropdown */}
       {open && (
-        <nav className="md:hidden border-t border-white/5 bg-surface-1 px-4 py-3 flex flex-col gap-1 animate-slide-up">
+        <nav className="md:hidden absolute top-[calc(100%+0.5rem)] left-0 w-full border border-white/10 rounded-3xl bg-surface/90 backdrop-blur-xl px-4 py-4 flex flex-col gap-1 shadow-glow animate-slide-up">
           {links.map(({ href, label }) => (
             <Link
               key={href}

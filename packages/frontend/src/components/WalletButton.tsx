@@ -102,7 +102,7 @@ export const WalletButton: React.FC = () => {
 
       {open && (
         <div className="absolute right-0 mt-2 w-64 z-50 origin-top-right animate-slide-up">
-          <div className="bg-surface-1 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+          <div className="bg-surface-1 border border-white/10 rounded-3xl shadow-glow overflow-hidden">
             <div className="px-4 py-3 border-b border-white/5">
               <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Network</p>
               <p

@@ -17,8 +17,8 @@ export const Footer: React.FC = () => {
           {/* Brand */}
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-gradient">
-                <Icon name="rocket" size={16} className="text-white" />
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-gradient shadow-glow">
+                <Icon name="rocket" size={16} className="text-black" />
               </span>
               <span className="font-semibold">Launchpad</span>
             </div>

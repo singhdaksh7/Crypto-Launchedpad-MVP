@@ -17,7 +17,7 @@ export const Stat: React.FC<StatProps> = ({
 }) => {
   return (
     <div
-      className={`bg-surface-2 border border-white/5 rounded-lg p-4 ${
+      className={`bg-surface-2 border border-white/5 rounded-2xl p-4 shadow-soft ${
         align === 'center' ? 'text-center' : ''
       }`}
     >

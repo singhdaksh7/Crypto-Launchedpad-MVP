@@ -10,24 +10,24 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#6366f1',
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
+          DEFAULT: '#00f7ff',
+          50: '#e0feff',
+          100: '#b8fdff',
+          400: '#22e2eb',
+          500: '#00f7ff',
+          600: '#00cdd6',
+          700: '#00a3ad',
         },
         secondary: {
-          DEFAULT: '#a855f7',
-          500: '#a855f7',
-          600: '#9333ea',
+          DEFAULT: '#00bcd4',
+          500: '#00bcd4',
+          600: '#0097a7',
         },
         surface: {
-          DEFAULT: '#0b0d12',
-          1: '#11141b',
-          2: '#161a23',
-          3: '#1d2230',
+          DEFAULT: '#000000',
+          1: '#050505',
+          2: '#0a0a0a',
+          3: '#111111',
         },
       },
       fontFamily: {
@@ -36,13 +36,13 @@ const config: Config = {
       },
       backgroundImage: {
         'grid-pattern':
-          "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0)",
+          "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)",
         'brand-gradient':
-          'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+          'linear-gradient(135deg, #00f7ff 0%, #00bcd4 100%)',
       },
       boxShadow: {
-        soft: '0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.4)',
-        glow: '0 0 0 1px rgba(99,102,241,0.4), 0 8px 24px -8px rgba(99,102,241,0.4)',
+        soft: '0 1px 0 rgba(255,255,255,0.02) inset, 0 1px 2px rgba(0,0,0,0.8)',
+        glow: '0 0 0 1px rgba(0,247,255,0.3), 0 8px 24px -8px rgba(0,247,255,0.4)',
       },
       animation: {
         'fade-in': 'fadeIn 0.25s ease-out',
