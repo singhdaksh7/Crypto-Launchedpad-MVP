@@ -4,6 +4,8 @@
   "description": "Frontend for launchpad",
   "scripts": {
     "dev": "next dev",
+    "preflight": "node scripts/preflight.js",
+    "prebuild": "node scripts/preflight.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

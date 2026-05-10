@@ -29,6 +29,7 @@ import { AddressLink } from '@/components/ui/AddressLink';
 import { FundingBadge } from '@/components/ui/FundingBadge';
 import { FundingPanel } from '@/components/FundingPanel';
 import { usePresaleFunding } from '@/hooks/usePresaleFunding';
+import { useProtocolFee } from '@/hooks/useProtocolFee';
 
 interface MyPresale extends PresaleConfig {
   id: number;
@@ -79,17 +80,46 @@ function validateForm(d: FormData): Partial<Record<keyof FormData, string>> {
   const now = Math.floor(Date.now() / 1000);
   const start = d.startTime ? Math.floor(new Date(d.startTime).getTime() / 1000) : 0;
   const end = d.endTime ? Math.floor(new Date(d.endTime).getTime() / 1000) : 0;
+  // Contract requires block.timestamp < startTime strictly. Add a small forward
+  // buffer so the tx still passes after the user takes a few seconds to sign.
+  const START_BUFFER_SEC = 60;
   if (!start) errors.startTime = 'Pick a start time.';
-  else if (start < now - 60) errors.startTime = 'Start must be in the future.';
+  else if (start <= now + START_BUFFER_SEC) {
+    errors.startTime = 'Start must be at least 1 minute in the future.';
+  }
   if (!end) errors.endTime = 'Pick an end time.';
   else if (start && end <= start) errors.endTime = 'End must be after start.';
   return errors;
+}
+
+type TokenCheck =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'ok'; name: string; symbol: string }
+  | { status: 'error'; message: string };
+
+async function inspectErc20(address: string): Promise<TokenCheck> {
+  try {
+    const provider = getProvider();
+    const code = await provider.getCode(address);
+    if (!code || code === '0x') {
+      return { status: 'error', message: 'No contract deployed at this address.' };
+    }
+    const token = new ethers.Contract(address, ERC20_ABI, provider);
+    const [name, symbol] = await Promise.all([token.name(), token.symbol()]);
+    // Touching decimals() proves the ERC20 interface is honored end-to-end.
+    await token.decimals();
+    return { status: 'ok', name: String(name), symbol: String(symbol) };
+  } catch {
+    return { status: 'error', message: 'Address is not a standard ERC20 token.' };
+  }
 }
 
 export default function Dashboard() {
   const router = useRouter();
   const { account, signer } = useWeb3Store();
   const [tab, setTab] = useState<'create' | 'manage'>('create');
+  const { label: feeLabel } = useProtocolFee();
 
   /* ── Create form ───────────────────────────────── */
   const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
@@ -97,6 +127,7 @@ export default function Dashboard() {
   const [submitted, setSubmitted] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [tokenCheck, setTokenCheck] = useState<TokenCheck>({ status: 'idle' });
   const [formSuccess, setFormSuccess] = useState<
     | {
         msg: string;
@@ -106,6 +137,22 @@ export default function Dashboard() {
       }
     | null
   >(null);
+
+  // Re-validate the token address whenever it changes — invalidates a previous
+  // result so a stale "ok" badge can't outlive an edit.
+  useEffect(() => {
+    setTokenCheck({ status: 'idle' });
+  }, [formData.tokenAddress]);
+
+  const checkTokenAddress = useCallback(async () => {
+    const addr = formData.tokenAddress.trim();
+    if (!isValidAddress(addr)) return;
+    setTokenCheck({ status: 'checking' });
+    const result = await inspectErc20(addr);
+    // Drop result if the user changed the address while we were fetching.
+    if (addr !== formData.tokenAddress.trim()) return;
+    setTokenCheck(result);
+  }, [formData.tokenAddress]);
 
   useEffect(() => {
     if (router.query.token && typeof router.query.token === 'string') {
@@ -128,6 +175,15 @@ export default function Dashboard() {
     if (Object.keys(errs).length > 0 || !signer) {
       if (!signer) setFormError('Connect your wallet first.');
       return;
+    }
+    // Block submission unless the token address has been verified as a real
+    // ERC20. Run the check inline if the user never blurred the field.
+    let check = tokenCheck;
+    if (check.status !== 'ok') {
+      setTokenCheck({ status: 'checking' });
+      check = await inspectErc20(formData.tokenAddress.trim());
+      setTokenCheck(check);
+      if (check.status !== 'ok') return;
     }
     try {
       setFormLoading(true);
@@ -363,12 +419,21 @@ export default function Dashboard() {
                   name="tokenAddress"
                   value={formData.tokenAddress}
                   onChange={handleChange}
+                  onBlur={checkTokenAddress}
                   placeholder="0x..."
                   className="input-field mt-1.5 font-mono text-sm"
                   spellCheck={false}
                 />
                 {showError('tokenAddress') ? (
                   <p className="field-error">{formErrors.tokenAddress || liveErrors.tokenAddress}</p>
+                ) : tokenCheck.status === 'checking' ? (
+                  <p className="field-hint">Checking token…</p>
+                ) : tokenCheck.status === 'error' ? (
+                  <p className="field-error">{tokenCheck.message}</p>
+                ) : tokenCheck.status === 'ok' ? (
+                  <p className="field-hint text-emerald-400">
+                    Verified ERC20: {tokenCheck.name} ({tokenCheck.symbol})
+                  </p>
                 ) : (
                   !formData.tokenAddress && (
                     <p className="field-hint">
@@ -483,7 +548,7 @@ export default function Dashboard() {
 
               <Alert tone="info">
                 Make sure the launchpad contract is approved to transfer the
-                token amount you intend to sell. The protocol takes 2.5% of raised
+                token amount you intend to sell. The protocol takes {feeLabel} of raised
                 BNB on successful sales.
               </Alert>
 

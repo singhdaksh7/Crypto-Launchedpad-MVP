@@ -7,6 +7,13 @@ export const LAUNCHPAD_ABI = [
     type: "function",
   },
   {
+    inputs: [],
+    name: "platformFee",
+    outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [
       { internalType: "address", name: "tokenAddress", type: "address" },
       { internalType: "uint256", name: "tokenPrice", type: "uint256" },

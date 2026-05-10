@@ -1,12 +1,15 @@
 import { ethers } from 'ethers';
 
+const DEFAULT_TESTNET_RPC = 'https://bsc-testnet-rpc.publicnode.com';
+const DEFAULT_TESTNET_CHAIN_ID = 97;
+
 export const getProvider = () => {
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'https://data-seed-prebsc-1-b7c35c69bdb811ec.binance.org:8545';
+  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_TESTNET_RPC;
   return new ethers.JsonRpcProvider(rpcUrl);
 };
 
 export const getChainId = () => {
-  return parseInt(process.env.NEXT_PUBLIC_NETWORK || '97');
+  return parseInt(process.env.NEXT_PUBLIC_NETWORK || String(DEFAULT_TESTNET_CHAIN_ID));
 };
 
 export const getContractAddresses = () => {

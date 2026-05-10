@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ethers } from 'ethers';
@@ -27,6 +27,7 @@ import { Alert } from '@/components/ui/Alert';
 import { FundingBadge } from '@/components/ui/FundingBadge';
 import { FundingPanel } from '@/components/FundingPanel';
 import { usePresaleFunding } from '@/hooks/usePresaleFunding';
+import { useProtocolFee } from '@/hooks/useProtocolFee';
 
 interface UserContribution {
   amount: bigint;
@@ -38,6 +39,25 @@ export default function PresaleDetail() {
   const router = useRouter();
   const { id } = router.query;
   const { account, signer } = useWeb3Store();
+  const { label: feeLabel } = useProtocolFee();
+
+  // Track whether the actions panel is on screen so the mobile floating CTA
+  // can hide itself when it's redundant. Uses a callback ref so it rewires
+  // automatically when the panel mounts/unmounts (e.g. error / loading states).
+  const [panelInView, setPanelInView] = useState(false);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const setActionsRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      ([entry]) => setPanelInView(entry.isIntersecting),
+      { threshold: 0.1 },
+    );
+    io.observe(node);
+    observerRef.current = io;
+  }, []);
+  useEffect(() => () => observerRef.current?.disconnect(), []);
 
   const [presale, setPresale] = useState<PresaleConfig | null>(null);
   const [contribution, setContribution] = useState<UserContribution | null>(null);
@@ -457,7 +477,11 @@ export default function PresaleDetail() {
           </div>
 
           {/* ── Right: actions ────────────────────────── */}
-          <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+          <div
+            id="actions-panel"
+            ref={setActionsRef}
+            className="space-y-4 lg:sticky lg:top-24 lg:self-start scroll-mt-24"
+          >
             {txError && (
               <Alert tone="error" onDismiss={() => setTxError(null)}>
                 {txError}
@@ -677,7 +701,7 @@ export default function PresaleDetail() {
                   Owner: withdraw funds
                 </h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Withdraw {formatBnb(raisedBnb)} BNB minus the 2.5% protocol fee.
+                  Withdraw {formatBnb(raisedBnb)} BNB minus the {feeLabel} protocol fee.
                 </p>
                 <button
                   onClick={handleWithdraw}
@@ -707,6 +731,33 @@ export default function PresaleDetail() {
           </div>
         </div>
       </div>
+
+      {/* Mobile-only floating CTA: jumps to the actions panel since the right
+          column otherwise sits below all the details on small screens. Hidden
+          when the panel is already on screen. */}
+      {(() => {
+        let label: string | null = null;
+        if (status === 'active') label = 'Buy';
+        else if (status === 'ended' && reached && hasContrib && !alreadyClaimed) label = 'Claim';
+        else if (status === 'ended' && !reached && hasContrib) label = 'Refund';
+        else if (isOwner && status === 'ended' && reached && !presale.isFinalized) label = 'Withdraw';
+        if (!label || panelInView) return null;
+        return (
+          <a
+            href="#actions-panel"
+            onClick={(e) => {
+              e.preventDefault();
+              document
+                .getElementById('actions-panel')
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            className="lg:hidden fixed bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full bg-brand-gradient px-5 py-3 text-sm font-semibold shadow-glow"
+          >
+            {label}
+            <Icon name="arrow-down" size={14} />
+          </a>
+        );
+      })()}
     </Layout>
   );
 }

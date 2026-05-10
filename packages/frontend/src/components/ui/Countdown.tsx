@@ -70,7 +70,7 @@ export const Countdown: React.FC<CountdownProps> = ({
   return (
     <div>
       {label && <p className="text-xs text-gray-400 mb-2 text-center">{label}</p>}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {cells.map((c) => (
           <div
             key={c.label}

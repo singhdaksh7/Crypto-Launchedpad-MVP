@@ -48,7 +48,7 @@ function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64url');
 }
 
-function sign<T extends Record<string, unknown>>(payload: T): string {
+function sign<T extends object>(payload: T): string {
   const header = { alg: 'HS256', typ: 'JWT' };
   const headerB64 = b64url(JSON.stringify(header));
   const payloadB64 = b64url(JSON.stringify(payload));

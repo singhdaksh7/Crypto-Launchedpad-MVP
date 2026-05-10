@@ -3,12 +3,13 @@ import Link from 'next/link';
 import { ethers } from 'ethers';
 import { Layout } from '@/components/Layout';
 import { LAUNCHPAD_ABI } from '@/lib/abis/Launchpad';
-import { getContractAddresses, getProvider } from '@/lib/web3';
+import { getChainId, getContractAddresses, getProvider } from '@/lib/web3';
 import { formatEther } from '@/lib/presale';
 import { compactNumber, formatBnb } from '@/lib/format';
 import { networkLabel } from '@/lib/links';
 import { Icon } from '@/components/ui/Icon';
 import { Stat } from '@/components/ui/Stat';
+import { useProtocolFee } from '@/hooks/useProtocolFee';
 
 interface Stats {
   total: number;
@@ -62,10 +63,10 @@ const STEPS = [
   },
 ];
 
-const FAQ = [
+const buildFaq = (feeLabel: string) => [
   {
     q: 'How does the launchpad work?',
-    a: 'You deploy an ERC20 token, transfer the tokens to the launchpad presale contract, and configure the sale (price, caps, window). Contributors send BNB during the sale. If softcap is reached, contributors claim tokens after the sale ends and the owner withdraws the raised BNB minus a 2.5% protocol fee. If softcap isn’t reached, contributors can refund their BNB.',
+    a: `You deploy an ERC20 token, transfer the tokens to the launchpad presale contract, and configure the sale (price, caps, window). Contributors send BNB during the sale. If softcap is reached, contributors claim tokens after the sale ends and the owner withdraws the raised BNB minus a ${feeLabel} protocol fee. If softcap isn’t reached, contributors can refund their BNB.`,
   },
   {
     q: 'Are my funds safe?',
@@ -73,7 +74,7 @@ const FAQ = [
   },
   {
     q: 'Which network is this on?',
-    a: 'The app currently runs on BSC Testnet by default. Always confirm the network shown in your wallet matches the network shown at the top of this page.',
+    a: 'The app runs on BNB Chain Testnet (chainId 97). You can grab testnet BNB from the official faucet at testnet.bnbchain.org/faucet-smart. Confirm your wallet is on BSC Testnet before connecting.',
   },
   {
     q: 'How do I claim my tokens?',
@@ -81,13 +82,15 @@ const FAQ = [
   },
   {
     q: 'What are the fees?',
-    a: 'Creating a token or presale costs only the BSC gas fee. When a successful presale is finalized, the protocol takes a 2.5% fee from the raised BNB. Contributors are not charged any additional fee.',
+    a: `Creating a token or presale costs only the BSC gas fee. When a successful presale is finalized, the protocol takes a ${feeLabel} fee from the raised BNB. Contributors are not charged any additional fee.`,
   },
 ];
 
 export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const { label: feeLabel } = useProtocolFee();
+  const faq = buildFaq(feeLabel);
 
   useEffect(() => {
     (async () => {
@@ -142,7 +145,7 @@ export default function Home() {
         <div className="container-page pt-24 sm:pt-32 pb-16 text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-gray-300 mb-6 animate-fade-in">
             <span className="pulse-dot" />
-            Live on {networkLabel(97)}
+            Live on {networkLabel(getChainId())}
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-7xl font-semibold tracking-tight leading-[1.05] mb-5">
@@ -247,7 +250,7 @@ export default function Home() {
             Everything you should know before launching or contributing.
           </p>
           <div className="space-y-3">
-            {FAQ.map((item, i) => (
+            {faq.map((item, i) => (
               <details
                 key={i}
                 className="card group cursor-pointer hover:border-white/15 transition"
@@ -274,8 +277,8 @@ export default function Home() {
             Ready to launch your token?
           </h2>
           <p className="text-gray-400 mb-8 max-w-md mx-auto text-lg">
-            Deploy in under two minutes. No fees beyond network gas — and a 2.5%
-            protocol fee only on successful raises.
+            Deploy in under two minutes. No fees beyond network gas — and a {feeLabel}
+            {' '}protocol fee only on successful raises.
           </p>
           <Link href="/create-token" className="btn-primary px-6 py-3 text-base">
             Get started

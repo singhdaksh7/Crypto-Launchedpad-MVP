@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
+import { networkLabel } from '@/lib/links';
 import { WALLETS, getWalletMeta, type WalletId } from '@/lib/wallets';
 import { getWalletConnectProvider } from '@/lib/walletConnect';
 
@@ -68,7 +69,7 @@ export const useWalletConnect = () => {
       });
     } catch (switchError: any) {
       if (switchError?.code === 4902) {
-        throw new Error('Please add BSC Testnet to your wallet first.');
+        throw new Error(`Please add ${networkLabel(getChainId())} to your wallet first.`);
       }
       // 4001 = user rejected the switch — fall through; banner will warn.
       if (switchError?.code !== 4001) throw switchError;

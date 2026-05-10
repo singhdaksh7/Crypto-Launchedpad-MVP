@@ -51,3 +51,4 @@ Thumbs.db
 packages/contracts/artifacts/
 packages/contracts/cache/
 .claude/
+tsconfig.tsbuildinfo 
