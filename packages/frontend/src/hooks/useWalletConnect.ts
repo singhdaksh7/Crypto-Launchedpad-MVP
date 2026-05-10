@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
-import { networkLabel } from '@/lib/links';
+import { switchOrAddChain } from '@/lib/chain';
 import { WALLETS, getWalletMeta, type WalletId } from '@/lib/wallets';
 import { getWalletConnectProvider } from '@/lib/walletConnect';
 
@@ -62,18 +62,9 @@ export const useWalletConnect = () => {
     const probe = new ethers.BrowserProvider(raw);
     const current = Number((await probe.getNetwork()).chainId);
     if (current === required) return;
-    try {
-      await raw.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${required.toString(16)}` }],
-      });
-    } catch (switchError: any) {
-      if (switchError?.code === 4902) {
-        throw new Error(`Please add ${networkLabel(getChainId())} to your wallet first.`);
-      }
-      // 4001 = user rejected the switch — fall through; banner will warn.
-      if (switchError?.code !== 4001) throw switchError;
-    }
+    // Falls back to wallet_addEthereumChain on 4902 — the banner still warns
+    // visually if the user rejects everything.
+    await switchOrAddChain(raw);
   }, []);
 
   const connectWallet = useCallback(

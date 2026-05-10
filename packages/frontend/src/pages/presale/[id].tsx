@@ -751,10 +751,11 @@ export default function PresaleDetail() {
                 .getElementById('actions-panel')
                 ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }}
-            className="lg:hidden fixed bottom-4 right-4 z-30 inline-flex items-center gap-2 rounded-full bg-brand-gradient px-5 py-3 text-sm font-semibold shadow-glow"
+            className="lg:hidden fixed bottom-5 right-5 z-30 inline-flex items-center gap-2 rounded-full bg-surface-1/90 backdrop-blur-md border border-primary-500/40 text-primary-100 px-4 py-2.5 text-sm font-semibold shadow-glow animate-slide-up active:scale-95 transition-transform"
           >
+            <span className="h-1.5 w-1.5 rounded-full bg-primary-400 animate-pulse-slow" />
             {label}
-            <Icon name="arrow-down" size={14} />
+            <Icon name="arrow-down" size={14} className="opacity-70" />
           </a>
         );
       })()}

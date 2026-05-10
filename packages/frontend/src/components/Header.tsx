@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { WalletButton } from './WalletButton';
 import { Icon } from './ui/Icon';
+import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
 import { networkLabel } from '@/lib/links';
 
@@ -30,9 +31,16 @@ const Logo: React.FC = () => (
 export const Header: React.FC = () => {
   const [open, setOpen] = useState(false);
   const { pathname } = useRouter();
+  const { account, chainId } = useWeb3Store();
 
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && pathname.startsWith(href));
+
+  // Green when no wallet (passive state) or wallet on the right chain;
+  // amber when connected but on the wrong chain.
+  const required = getChainId();
+  const networkOk = !account || chainId == null || chainId === required;
+  const dotClass = networkOk ? 'bg-emerald-400' : 'bg-amber-400';
 
   return (
     <header className="sticky top-4 z-40 mx-auto max-w-5xl backdrop-blur-lg bg-surface/60 border border-white/10 rounded-full shadow-soft transition-all duration-300 w-[calc(100%-2rem)]">
@@ -58,7 +66,7 @@ export const Header: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline-flex badge-neutral">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
             {networkLabel(getChainId())}
           </span>
           <WalletButton />
@@ -93,7 +101,7 @@ export const Header: React.FC = () => {
           <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between">
             <span className="text-xs text-gray-500">Network</span>
             <span className="badge-neutral">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
               {networkLabel(getChainId())}
             </span>
           </div>

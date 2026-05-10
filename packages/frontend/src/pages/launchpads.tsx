@@ -29,12 +29,13 @@ interface PresaleData extends PresaleConfig {
 type StatusFilter = 'all' | 'upcoming' | 'active' | 'ended';
 type SortBy = 'newest' | 'raised' | 'ending';
 
-function PresaleCard({ presale }: { presale: PresaleData }) {
+function PresaleCard({ presale, account }: { presale: PresaleData; account: string | null }) {
   const status = getPresaleStatus(presale);
   const raisedBnb = parseFloat(formatEther(presale.totalRaised));
   const hardcapBnb = parseFloat(formatEther(presale.hardcap));
   const softcapBnb = parseFloat(formatEther(presale.softcap));
   const pct = progressPct(presale.totalRaised, presale.hardcap);
+  const isOwner = !!account && account.toLowerCase() === presale.owner.toLowerCase();
 
   return (
     <Link
@@ -55,7 +56,14 @@ function PresaleCard({ presale }: { presale: PresaleData }) {
             {formatAddress(presale.tokenAddress)}
           </p>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isOwner && (
+            <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+              Yours
+            </span>
+          )}
+          <StatusBadge status={status} />
+        </div>
       </div>
 
       <div>
@@ -336,7 +344,7 @@ export default function Launchpads() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((p) => <PresaleCard key={p.id} presale={p} />)}
+          {filtered.map((p) => <PresaleCard key={p.id} presale={p} account={account} />)}
         </div>
       )}
     </Layout>
