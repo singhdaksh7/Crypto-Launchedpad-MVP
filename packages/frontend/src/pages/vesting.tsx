@@ -322,7 +322,7 @@ export default function VestingPage() {
         {!vestingConfigured && (
           <Alert tone="warning" className="mb-6" title="Vesting contract not configured">
             Set <code>NEXT_PUBLIC_VESTING_ADDRESS</code> in your environment after deploying
-            the latest contracts. Until then this page can't read or write schedules.
+            the latest contracts. Until then this page can&apos;t read or write schedules.
           </Alert>
         )}
 

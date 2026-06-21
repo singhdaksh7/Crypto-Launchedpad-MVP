@@ -201,7 +201,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({
             <h2 className="text-xl font-semibold">KYC pending review</h2>
             <p className="text-sm text-gray-400 mt-0.5">
               Token creation is open after KYC approval. Send your wallet address
-              to the team and we'll add you to the verified list — usually same-day.
+              to the team and we&apos;ll add you to the verified list — usually same-day.
             </p>
           </div>
         </div>
@@ -214,7 +214,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({
         </div>
 
         <Alert tone="info" className="mb-5">
-          KYC is mandatory for creators only — buyers don't need it. We re-check
+          KYC is mandatory for creators only — buyers don&apos;t need it. We re-check
           your status on every page load, so refresh after the team confirms.
         </Alert>
 
