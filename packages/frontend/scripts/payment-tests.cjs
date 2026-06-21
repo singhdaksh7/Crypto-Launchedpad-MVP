@@ -12,9 +12,16 @@ require('ts-node').register({
 const {
   createLaunchAccessOrder,
   getLaunchAccess,
+  listLaunchAccessForAdmin,
+  listPaymentOrdersForAdmin,
+  requireCreatorAccess,
   verifyLaunchAccessPayment,
 } = require('../src/lib/server/payments/service.ts');
-const { createMemoryPaymentStorage } = require('../src/lib/server/payments/storage.ts');
+const {
+  createMemoryPaymentStorage,
+  getPaymentStorage,
+  resetPaymentStorageForTests,
+} = require('../src/lib/server/payments/storage.ts');
 const { MockPaymentProvider, createMockPaymentSignature } = require('../src/lib/server/payments/mockProvider.ts');
 
 const WALLET = '0x1111111111111111111111111111111111111111';
@@ -107,7 +114,7 @@ test('wrong amount is rejected', async () => {
   const providerPaymentId = 'mock_payment_wrong_amount';
   const providerStatus = 'successful';
 
-  storage.saveOrder({
+  storage.createPaymentOrder({
     paymentProvider: 'mock',
     providerOrderId,
     providerStatus: 'pending',
@@ -154,4 +161,111 @@ test('access lookup returns false before payment and true after payment', async 
     { storage, provider },
   );
   assert.equal(getLaunchAccess(WALLET, storage).hasLaunchAccess, true);
+});
+
+test('storage adapter can create and fetch a payment order', () => {
+  const storage = createMemoryPaymentStorage();
+  storage.createPaymentOrder({
+    paymentProvider: 'mock',
+    providerOrderId: 'mock_order_fetch',
+    providerStatus: 'pending',
+    walletAddress: WALLET,
+    amount: 1000,
+    currency: 'INR',
+    status: 'pending',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  const order = storage.getPaymentOrderByProviderOrderId('mock_order_fetch');
+  assert.equal(order.walletAddress, WALLET);
+  assert.equal(order.amount, 1000);
+});
+
+test('wallet access approval is durable inside the selected storage adapter', () => {
+  const storage = createMemoryPaymentStorage();
+  storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:00:00.000Z');
+
+  const access = storage.getWalletAccess(WALLET);
+  assert.equal(access.hasLaunchAccess, true);
+  assert.equal(access.paymentProvider, 'mock');
+});
+
+test('consumed payment replay protection works at storage level', () => {
+  const storage = createMemoryPaymentStorage();
+  storage.createPaymentOrder({
+    paymentProvider: 'mock',
+    providerOrderId: 'mock_order_consumed',
+    providerStatus: 'pending',
+    walletAddress: WALLET,
+    amount: 1000,
+    currency: 'INR',
+    status: 'pending',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+  storage.markPaymentConsumed('mock_order_consumed', {
+    providerPaymentId: 'mock_payment_consumed',
+    consumedAt: '2026-01-01T00:01:00.000Z',
+  });
+
+  assert.equal(storage.checkPaymentConsumed('mock_payment_consumed'), true);
+});
+
+test('production memory-storage guard fails safely', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousStorage = process.env.PAYMENT_STORAGE;
+  resetPaymentStorageForTests();
+  process.env.NODE_ENV = 'production';
+  process.env.PAYMENT_STORAGE = 'memory';
+
+  assert.throws(() => getPaymentStorage(), /local-development only/);
+
+  resetPaymentStorageForTests();
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+  if (previousStorage === undefined) delete process.env.PAYMENT_STORAGE;
+  else process.env.PAYMENT_STORAGE = previousStorage;
+});
+
+test('requireCreatorAccess rejects unpaid wallet', () => {
+  const storage = createMemoryPaymentStorage();
+
+  assert.throws(() => requireCreatorAccess(WALLET, storage), /Payment required/);
+});
+
+test('requireCreatorAccess allows paid wallet', () => {
+  const storage = createMemoryPaymentStorage();
+  storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:00:00.000Z');
+
+  const access = requireCreatorAccess(WALLET, storage);
+  assert.equal(access.hasLaunchAccess, true);
+});
+
+test('admin list helpers omit secrets and expose safe payment visibility fields', () => {
+  const storage = createMemoryPaymentStorage();
+  storage.createPaymentOrder({
+    paymentProvider: 'mock',
+    providerOrderId: 'mock_order_admin',
+    providerPaymentId: 'mock_payment_admin',
+    providerSignature: 'secret-signature-that-must-not-leak',
+    providerStatus: 'successful',
+    walletAddress: WALLET,
+    amount: 1000,
+    currency: 'INR',
+    status: 'successful',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    paidAt: '2026-01-01T00:01:00.000Z',
+  });
+  storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:01:00.000Z');
+
+  const [order] = listPaymentOrdersForAdmin(storage);
+  const [access] = listLaunchAccessForAdmin(storage);
+
+  assert.equal(order.providerOrderId, 'mock_order_admin');
+  assert.equal(order.walletAddress, WALLET);
+  assert.equal(order.amount, 1000);
+  assert.equal(order.currency, 'INR');
+  assert.equal(order.status, 'successful');
+  assert.equal(order.paymentProvider, 'mock');
+  assert.equal(Object.prototype.hasOwnProperty.call(order, 'providerSignature'), false);
+  assert.equal(access.hasLaunchAccess, true);
 });

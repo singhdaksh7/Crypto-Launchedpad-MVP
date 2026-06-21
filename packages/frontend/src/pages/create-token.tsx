@@ -5,6 +5,7 @@ import { useWeb3Store } from '@/store';
 import { Layout } from '@/components/Layout';
 import { TOKEN_FACTORY_ABI } from '@/lib/abis/TokenFactory';
 import { getContractAddresses } from '@/lib/web3';
+import { assertCreatorAccess } from '@/lib/creatorAccess';
 import { friendlyError } from '@/lib/format';
 import { txUrl } from '@/lib/links';
 import { Icon } from '@/components/ui/Icon';
@@ -69,6 +70,7 @@ export default function CreateToken() {
     try {
       setLoading(true);
       setError(null);
+      await assertCreatorAccess(account);
 
       const { tokenFactory } = getContractAddresses();
       const contract = new ethers.Contract(tokenFactory, TOKEN_FACTORY_ABI, signer);

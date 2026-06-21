@@ -28,7 +28,7 @@ export async function createLaunchAccessOrder(
   const wallet = normalizeWallet(walletAddress);
   const provider = deps?.provider || getPaymentProvider();
   const storage = deps?.storage || getPaymentStorage();
-  const existingAccess = storage.getAccess(wallet);
+  const existingAccess = storage.getWalletAccess(wallet);
   if (existingAccess.hasLaunchAccess) {
     throw new Error('Launch access is already approved for this wallet.');
   }
@@ -49,7 +49,7 @@ export async function createLaunchAccessOrder(
     status: 'pending',
     createdAt: nowIso(),
   };
-  storage.saveOrder(record);
+  storage.createPaymentOrder(record);
 
   return providerOrder;
 }
@@ -61,7 +61,7 @@ export async function verifyLaunchAccessPayment(
   const wallet = normalizeWallet(input.walletAddress);
   const provider = deps?.provider || getPaymentProvider();
   const storage = deps?.storage || getPaymentStorage();
-  const order = storage.getOrder(input.providerOrderId);
+  const order = storage.getPaymentOrderByProviderOrderId(input.providerOrderId);
 
   if (!order) throw new Error('Payment order not found.');
   if (order.walletAddress !== wallet) throw new Error('Payment order does not belong to this wallet.');
@@ -88,26 +88,48 @@ export async function verifyLaunchAccessPayment(
   if (verified.providerStatus !== 'successful') {
     throw new Error('Payment is not successful.');
   }
-  if (storage.hasConsumedProviderPayment(providerPaymentId, providerTransactionId)) {
+  if (storage.checkPaymentConsumed(providerPaymentId, providerTransactionId)) {
     throw new Error('Payment has already been used.');
   }
 
   const paidAt = verified.paidAt || nowIso();
-  const updated: PaymentOrderRecord = {
-    ...order,
+  storage.updatePaymentOrderStatus(order.providerOrderId, {
     providerPaymentId,
     providerTransactionId,
     providerSignature: verified.providerSignature || input.providerSignature || input.providerChecksum,
     providerStatus: verified.providerStatus,
     status: 'successful',
     paidAt,
+  });
+  storage.markPaymentConsumed(order.providerOrderId, {
+    providerPaymentId,
+    providerTransactionId,
     consumedAt: nowIso(),
-  };
-  storage.updateOrder(updated);
-  storage.approveAccess(wallet, order.paymentProvider, paidAt);
-  return storage.getAccess(wallet);
+  });
+  storage.approveWalletAccess(wallet, order.paymentProvider, paidAt);
+  return storage.getWalletAccess(wallet);
 }
 
 export function getLaunchAccess(walletAddress: string, storage = getPaymentStorage()) {
-  return storage.getAccess(normalizeWallet(walletAddress));
+  return getCreatorAccessStatus(walletAddress, storage);
+}
+
+export function getCreatorAccessStatus(walletAddress: string, storage = getPaymentStorage()) {
+  return storage.getWalletAccess(normalizeWallet(walletAddress));
+}
+
+export function requireCreatorAccess(walletAddress: string, storage = getPaymentStorage()) {
+  const access = getCreatorAccessStatus(walletAddress, storage);
+  if (!access.hasLaunchAccess) {
+    throw new Error('Payment required: creator launch access is not approved for this wallet.');
+  }
+  return access;
+}
+
+export function listPaymentOrdersForAdmin(storage = getPaymentStorage()) {
+  return storage.listPaymentOrders();
+}
+
+export function listLaunchAccessForAdmin(storage = getPaymentStorage()) {
+  return storage.listWalletAccessApprovals();
 }

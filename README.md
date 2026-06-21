@@ -237,6 +237,7 @@ Apply to **Production, Preview, Development**.
 | `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase |
 | `PAYMENT_PROVIDER` | `mock` for local/testnet until SMEPay is configured |
 | `PAYMENT_AMOUNT_INR` | `1000` |
+| `PAYMENT_STORAGE` | `memory` for local/dev only |
 | `MOCK_PAYMENT_SECRET` | random test secret for mock-provider verification |
 | `SMEPAY_MERCHANT_ID` | empty until SMEPay credentials are available |
 | `SMEPAY_SECRET` | empty until SMEPay credentials are available |
@@ -264,9 +265,16 @@ project for testnet previews).
 | `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase mainnet addresses |
 | `PAYMENT_PROVIDER` | `smepay` after SMEPay API credentials/docs are wired |
 | `PAYMENT_AMOUNT_INR` | `1000` |
+| `PAYMENT_STORAGE` | `database` — production must use persistent storage |
 | `SMEPAY_MERCHANT_ID` | live merchant id from SMEPay |
 | `SMEPAY_SECRET` | live server-side SMEPay secret |
 | `SMEPAY_WEBHOOK_SECRET` | live webhook checksum/signature secret once documented |
+
+Payment/access storage note: the built-in memory adapter is only for local
+development because it resets on server restart and is not reliable on Vercel
+serverless. Production deployments must use `PAYMENT_STORAGE=database` after a
+persistent database adapter is wired; the placeholder database adapter fails
+safely until that integration exists.
 
 ### Mainnet pre-deploy checklist
 

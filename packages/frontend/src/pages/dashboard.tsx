@@ -12,6 +12,7 @@ import {
   isValidAddress,
   parseEther,
 } from '@/lib/web3';
+import { assertCreatorAccess } from '@/lib/creatorAccess';
 import {
   PresaleConfig,
   formatEther,
@@ -190,6 +191,7 @@ export default function Dashboard() {
       setFormLoading(true);
       setFormError(null);
       setFormSuccess(null);
+      await assertCreatorAccess(account);
 
       const { launchpad } = getContractAddresses();
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer);
