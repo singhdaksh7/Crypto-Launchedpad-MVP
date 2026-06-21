@@ -92,7 +92,7 @@ NEXT_PUBLIC_VESTING_ADDRESS=0x...
 ```
 
 See `packages/frontend/.env.example` for the full list of vars (WalletConnect,
-KYC, Razorpay, JWT) and the "Deploying to Vercel" section below for the
+creator access, payment gateway, JWT) and the "Deploying to Vercel" section below for the
 mainnet-vs-testnet split.
 
 ## Development
@@ -232,13 +232,15 @@ Apply to **Production, Preview, Development**.
 | `NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS` | from `bscTestnet.json` |
 | `NEXT_PUBLIC_VESTING_ADDRESS` | from `bscTestnet.json` |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect Cloud project id |
-| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Razorpay test key (`rzp_test_...`) |
-| `RAZORPAY_KEY_ID` | same `rzp_test_...` |
-| `RAZORPAY_KEY_SECRET` | Razorpay test secret |
 | `JWT_SECRET` | 32+ byte random string |
 | `EXEMPT_ADDRESSES` | comma-separated, lowercase |
 | `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase |
+| `PAYMENT_PROVIDER` | `mock` for local/testnet until SMEPay is configured |
 | `PAYMENT_AMOUNT_INR` | `1000` |
+| `MOCK_PAYMENT_SECRET` | random test secret for mock-provider verification |
+| `SMEPAY_MERCHANT_ID` | empty until SMEPay credentials are available |
+| `SMEPAY_SECRET` | empty until SMEPay credentials are available |
+| `SMEPAY_WEBHOOK_SECRET` | empty until SMEPay webhook docs are available |
 
 ### Env vars — mainnet project (new production project)
 
@@ -257,13 +259,14 @@ project for testnet previews).
 | `NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS` | from `bscMainnet.json` |
 | `NEXT_PUBLIC_VESTING_ADDRESS` | from `bscMainnet.json` |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | a separate WalletConnect Cloud project id with the production domain in its allowed origins |
-| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Razorpay **live** key (`rzp_live_...`) |
-| `RAZORPAY_KEY_ID` | same `rzp_live_...` |
-| `RAZORPAY_KEY_SECRET` | Razorpay **live** secret |
 | `JWT_SECRET` | a fresh 32+ byte random string (do **not** reuse the testnet secret) |
 | `EXEMPT_ADDRESSES` | comma-separated, lowercase mainnet addresses |
 | `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase mainnet addresses |
+| `PAYMENT_PROVIDER` | `smepay` after SMEPay API credentials/docs are wired |
 | `PAYMENT_AMOUNT_INR` | `1000` |
+| `SMEPAY_MERCHANT_ID` | live merchant id from SMEPay |
+| `SMEPAY_SECRET` | live server-side SMEPay secret |
+| `SMEPAY_WEBHOOK_SECRET` | live webhook checksum/signature secret once documented |
 
 ### Mainnet pre-deploy checklist
 

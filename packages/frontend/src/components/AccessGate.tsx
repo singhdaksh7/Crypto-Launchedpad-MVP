@@ -1,56 +1,41 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAccess } from '@/hooks/useAccess';
 import { useWeb3Store } from '@/store';
+import { getChainId } from '@/lib/web3';
+import { networkLabel } from '@/lib/links';
+import type { OrderResponse } from '@/lib/access';
 import { Icon } from './ui/Icon';
 import { Alert } from './ui/Alert';
 
 interface AccessGateProps {
   children: React.ReactNode;
-  /** Title shown on the gate ("To create a token..."). Optional copy override. */
   title?: string;
   description?: string;
 }
 
-const RAZORPAY_SCRIPT = 'https://checkout.razorpay.com/v1/checkout.js';
-
-declare global {
-  interface Window {
-    Razorpay?: any;
-  }
-}
-
-function loadRazorpay(): Promise<boolean> {
-  if (typeof window === 'undefined') return Promise.resolve(false);
-  if (window.Razorpay) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = RAZORPAY_SCRIPT;
-    script.async = true;
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.head.appendChild(script);
-  });
-}
+type PaymentStep = 'idle' | 'pending' | 'verifying';
 
 export const AccessGate: React.FC<AccessGateProps> = ({
   children,
-  title = 'Unlock Create Token',
-  description = 'Verify your wallet, complete payment (or skip if exempt), then pass KYC to start creating tokens.',
+  title = 'Creator launch access required',
+  description = 'Verify your wallet and complete the ₹1000 platform access fee before creating tokens or presales.',
 }) => {
-  const { account } = useWeb3Store();
+  const { account, chainId } = useWeb3Store();
+  const requiredChainId = getChainId();
   const access = useAccess();
-  const paymentSatisfied = access.exempt || access.paid;
-
-  const [paying, setPaying] = useState(false);
-  const [payError, setPayError] = useState<string | null>(null);
+  const [paymentOrder, setPaymentOrder] = useState<OrderResponse | null>(null);
+  const [paymentStep, setPaymentStep] = useState<PaymentStep>('idle');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const handlerLock = useRef(false);
 
-  // Reset payment-error state when access changes.
   useEffect(() => {
-    if (access.unlocked) setPayError(null);
+    if (access.unlocked) {
+      setPaymentError(null);
+      setPaymentOrder(null);
+      setPaymentStep('idle');
+    }
   }, [access.unlocked]);
 
-  /* ── Already unlocked ────────────────────────────── */
   if (access.unlocked) {
     return (
       <>
@@ -62,8 +47,8 @@ export const AccessGate: React.FC<AccessGateProps> = ({
             <div className="flex-1 min-w-0">
               <p className="font-medium text-emerald-200">
                 {access.reason === 'exempt'
-                  ? 'Exempt wallet — payment not required.'
-                  : 'Payment complete — Create Token unlocked.'}
+                  ? 'Creator launch access approved — payment skipped for this wallet.'
+                  : 'Payment verified — creator launch access approved.'}
               </p>
               <p className="text-xs text-gray-400 mt-0.5 break-all font-mono">
                 {access.serverAddress}
@@ -84,17 +69,15 @@ export const AccessGate: React.FC<AccessGateProps> = ({
     );
   }
 
-  /* ── Loading ─────────────────────────────────────── */
   if (access.loading) {
     return (
       <div className="card text-center py-12">
         <Icon name="spinner" size={20} className="mx-auto text-gray-400" />
-        <p className="text-sm text-gray-400 mt-3">Checking access…</p>
+        <p className="text-sm text-gray-400 mt-3">Checking creator access…</p>
       </div>
     );
   }
 
-  /* ── No wallet connected ─────────────────────────── */
   if (!account) {
     return (
       <div className="card text-center py-14">
@@ -103,14 +86,33 @@ export const AccessGate: React.FC<AccessGateProps> = ({
         </div>
         <p className="text-lg font-medium mb-1">Connect a wallet</p>
         <p className="text-sm text-gray-400 max-w-sm mx-auto">
-          You’ll verify wallet ownership before creating a token. No tokens are
-          moved during this step.
+          Buyers can browse and participate without this gate. Creator actions
+          require wallet verification and launch access.
         </p>
       </div>
     );
   }
 
-  /* ── Need wallet sign-in (SIWE) ──────────────────── */
+  if (chainId != null && chainId !== requiredChainId) {
+    return (
+      <div className="card max-w-xl mx-auto">
+        <div className="flex items-start gap-3">
+          <span className="h-10 w-10 rounded-full bg-amber-500/15 text-amber-300 flex items-center justify-center shrink-0">
+            <Icon name="alert" size={18} />
+          </span>
+          <div>
+            <h2 className="text-xl font-semibold">Wrong network</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Switch to {networkLabel(requiredChainId)} before creating tokens or
+              presales. Creator payment access is checked against your verified
+              wallet on the configured BSC network.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!access.walletMatchesSession) {
     return (
       <div className="card max-w-xl mx-auto">
@@ -123,9 +125,9 @@ export const AccessGate: React.FC<AccessGateProps> = ({
               1
             </span>
             <div>
-              <p className="font-medium">Sign a verification message</p>
+              <p className="font-medium">Verify wallet ownership</p>
               <p className="text-gray-500 text-xs">
-                Free, off-chain. Proves your wallet ownership to our server.
+                Free, off-chain signature. This links creator access to your wallet.
               </p>
             </div>
           </li>
@@ -134,9 +136,10 @@ export const AccessGate: React.FC<AccessGateProps> = ({
               2
             </span>
             <div>
-              <p className="font-medium">Pay ₹1000 — or skip if exempt</p>
+              <p className="font-medium">Pay the ₹1000 platform access fee</p>
               <p className="text-gray-500 text-xs">
-                Server checks the exempt list automatically after step 1.
+                The backend creates and verifies the payment through the configured
+                payment gateway.
               </p>
             </div>
           </li>
@@ -145,10 +148,9 @@ export const AccessGate: React.FC<AccessGateProps> = ({
               3
             </span>
             <div>
-              <p className="font-medium">Pass KYC review</p>
+              <p className="font-medium">Create tokens and presales</p>
               <p className="text-gray-500 text-xs">
-                Required to launch a token. Approved manually for the MVP — usually
-                same-day.
+                Buyers never need this platform fee; it only gates creator actions.
               </p>
             </div>
           </li>
@@ -180,143 +182,57 @@ export const AccessGate: React.FC<AccessGateProps> = ({
     );
   }
 
-  /* ── Wallet verified, payment satisfied, KYC pending ─ */
-  if (paymentSatisfied && !access.kyc) {
-    return (
-      <div className="card max-w-xl mx-auto">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center">
-            <Icon name="check" size={14} />
-          </span>
-          <p className="text-sm">
-            {access.exempt ? 'Wallet verified · payment skipped (exempt)' : 'Wallet verified · payment complete'}
-          </p>
-        </div>
-
-        <div className="flex items-start gap-3 mb-5">
-          <span className="h-10 w-10 rounded-full bg-amber-500/15 text-amber-300 flex items-center justify-center shrink-0">
-            <Icon name="shield" size={18} />
-          </span>
-          <div>
-            <h2 className="text-xl font-semibold">KYC pending review</h2>
-            <p className="text-sm text-gray-400 mt-0.5">
-              Token creation is open after KYC approval. Send your wallet address
-              to the team and we&apos;ll add you to the verified list — usually same-day.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-surface-2 border border-white/5 rounded-lg p-4 mb-5">
-          <p className="text-xs uppercase tracking-wider text-gray-500 mb-1">
-            Your wallet
-          </p>
-          <p className="text-sm font-mono break-all">{access.serverAddress}</p>
-        </div>
-
-        <Alert tone="info" className="mb-5">
-          KYC is mandatory for creators only — buyers don&apos;t need it. We re-check
-          your status on every page load, so refresh after the team confirms.
-        </Alert>
-
-        <div className="flex gap-2">
-          <button
-            onClick={access.refresh}
-            disabled={access.loading}
-            className="btn-primary flex-1 justify-center"
-          >
-            {access.loading ? (
-              <>
-                <Icon name="spinner" size={14} /> Checking…
-              </>
-            ) : (
-              <>
-                <Icon name="refresh" size={14} />
-                Refresh status
-              </>
-            )}
-          </button>
-          <button onClick={access.logout} className="btn-ghost" title="Sign out of this device">
-            <Icon name="close" size={14} />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /* ── Wallet verified, payment required ───────────── */
-  const handlePay = async () => {
-    if (paying || handlerLock.current) return;
-    handlerLock.current = true;
-    setPayError(null);
-    setPaying(true);
+  const createOrder = async () => {
+    if (!account) return;
+    setPaymentError(null);
+    setPaymentStep('pending');
     try {
-      const ok = await loadRazorpay();
-      if (!ok) throw new Error("Couldn't load the payment SDK. Check your network.");
-
-      const orderRes = await fetch('/api/payment/order', {
+      const res = await fetch('/api/payment/create-order', {
         method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress: account.toLowerCase() }),
       });
-      if (!orderRes.ok) {
-        const j = await orderRes.json().catch(() => ({}));
-        throw new Error(j.error || 'Failed to create payment order');
-      }
-      const order = (await orderRes.json()) as {
-        orderId: string;
-        amountInPaise: number;
-        amountInr: number;
-        keyId: string;
-      };
-
-      // Open Razorpay modal. Resolve when checkout completes (success or fail).
-      await new Promise<void>((resolve, reject) => {
-        const rzp = new window.Razorpay({
-          key: order.keyId,
-          amount: order.amountInPaise,
-          currency: 'INR',
-          name: 'Crypto Launchpad',
-          description: 'Create-Token access (one-time)',
-          order_id: order.orderId,
-          prefill: {},
-          theme: { color: '#6366f1' },
-          handler: async (response: any) => {
-            try {
-              const verifyRes = await fetch('/api/payment/verify', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  orderId: response.razorpay_order_id,
-                  paymentId: response.razorpay_payment_id,
-                  signature: response.razorpay_signature,
-                }),
-              });
-              if (!verifyRes.ok) {
-                const j = await verifyRes.json().catch(() => ({}));
-                throw new Error(j.error || 'Payment verification failed');
-              }
-              await access.refresh();
-              resolve();
-            } catch (e: any) {
-              reject(e);
-            }
-          },
-          modal: {
-            ondismiss: () => reject(new Error('Payment cancelled')),
-          },
-        });
-        rzp.on?.('payment.failed', (resp: any) => {
-          reject(new Error(resp?.error?.description || 'Payment failed'));
-        });
-        rzp.open();
-      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Failed to create payment order.');
+      setPaymentOrder(body as OrderResponse);
     } catch (err: any) {
-      setPayError(err?.message || 'Payment failed');
+      setPaymentStep('idle');
+      setPaymentError(err?.message || 'Payment order failed.');
+    }
+  };
+
+  const verifyPayment = async () => {
+    if (!account || !paymentOrder || handlerLock.current) return;
+    handlerLock.current = true;
+    setPaymentError(null);
+    setPaymentStep('verifying');
+    try {
+      const providerPaymentId = paymentOrder.providerSessionId;
+      const res = await fetch('/api/payment/verify', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletAddress: account.toLowerCase(),
+          providerOrderId: paymentOrder.providerOrderId,
+          providerPaymentId,
+          providerTransactionId: providerPaymentId,
+          providerSignature: paymentOrder.devProviderSignature,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Payment verification failed.');
+      await access.refresh();
+    } catch (err: any) {
+      setPaymentStep('pending');
+      setPaymentError(err?.message || 'Payment failed.');
     } finally {
-      setPaying(false);
       handlerLock.current = false;
     }
   };
+
+  const isMock = paymentOrder?.paymentProvider === 'mock';
 
   return (
     <div className="card max-w-xl mx-auto">
@@ -326,57 +242,100 @@ export const AccessGate: React.FC<AccessGateProps> = ({
         </span>
         <p className="text-sm">
           Wallet verified ·{' '}
-          <span className="font-mono text-xs text-gray-400">{account?.slice(0, 6)}…{account?.slice(-4)}</span>
+          <span className="font-mono text-xs text-gray-400">
+            {account.slice(0, 6)}…{account.slice(-4)}
+          </span>
         </p>
       </div>
 
-      <h2 className="text-xl font-semibold mb-1">One-time ₹1000 to unlock</h2>
+      <h2 className="text-xl font-semibold mb-1">₹1000 platform access fee</h2>
       <p className="text-sm text-gray-400 mb-5">
-        Pays for ongoing gas, RPC, and protocol fees. Charged once per wallet.
-        Refundable within 24 hours if you change your mind.
+        Creator access is approved only after the backend verifies a successful
+        INR payment from the configured payment gateway or SMEPay-compatible provider.
       </p>
 
       <div className="bg-surface-2 border border-white/5 rounded-lg p-4 mb-5">
         <div className="flex justify-between text-sm">
-          <span className="text-gray-400">Access fee</span>
+          <span className="text-gray-400">Platform access fee</span>
           <span className="font-semibold text-lg">₹1000</span>
         </div>
         <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>Billed once per wallet</span>
-          <span>via Razorpay</span>
+          <span>Billed once per creator wallet</span>
+          <span>{paymentOrder?.paymentProvider || 'Payment gateway'}</span>
         </div>
       </div>
 
-      {payError && (
-        <Alert tone="error" onDismiss={() => setPayError(null)} className="mb-4">
-          {payError}
+      {paymentOrder && (
+        <Alert tone="info" className="mb-4" title="Payment pending">
+          {isMock
+            ? 'Development provider is active. Complete the mock payment to test server-side verification.'
+            : 'Continue with the payment provider checkout, then return here for verification.'}
+        </Alert>
+      )}
+
+      {paymentError && (
+        <Alert tone="error" onDismiss={() => setPaymentError(null)} className="mb-4">
+          {paymentError}
         </Alert>
       )}
 
       <div className="flex gap-2">
-        <button
-          onClick={handlePay}
-          disabled={paying}
-          className="btn-primary flex-1 justify-center"
-        >
-          {paying ? (
-            <>
-              <Icon name="spinner" size={14} /> Opening checkout…
-            </>
-          ) : (
-            <>
-              <Icon name="lock" size={14} />
-              Pay ₹1000 to continue
-            </>
-          )}
-        </button>
+        {!paymentOrder ? (
+          <button
+            onClick={createOrder}
+            disabled={paymentStep === 'pending'}
+            className="btn-primary flex-1 justify-center"
+          >
+            {paymentStep === 'pending' ? (
+              <>
+                <Icon name="spinner" size={14} /> Creating payment…
+              </>
+            ) : (
+              <>
+                <Icon name="lock" size={14} />
+                Start payment
+              </>
+            )}
+          </button>
+        ) : (
+          <button
+            onClick={verifyPayment}
+            disabled={paymentStep === 'verifying'}
+            className="btn-primary flex-1 justify-center"
+          >
+            {paymentStep === 'verifying' ? (
+              <>
+                <Icon name="spinner" size={14} /> Verifying payment…
+              </>
+            ) : (
+              <>
+                <Icon name="check" size={14} />
+                {isMock ? 'Complete mock payment' : 'Verify payment'}
+              </>
+            )}
+          </button>
+        )}
         <button onClick={access.logout} className="btn-ghost" title="Sign out of this device">
           <Icon name="close" size={14} />
         </button>
       </div>
 
+      {paymentOrder && (
+        <button
+          onClick={() => {
+            setPaymentOrder(null);
+            setPaymentStep('idle');
+            setPaymentError(null);
+          }}
+          className="btn-secondary w-full justify-center mt-2"
+        >
+          Retry payment
+        </button>
+      )}
+
       <p className="text-[11px] text-gray-500 mt-3 text-center">
-        Payments are processed securely by Razorpay. We never see your card details.
+        We never trust frontend payment success alone. Launch access is granted
+        only after server-side provider verification.
       </p>
     </div>
   );

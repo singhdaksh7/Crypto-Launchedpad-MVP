@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { readSession } from '@/lib/server/session';
 import { isExempt, isKycVerified } from '@/lib/server/access';
+import { getLaunchAccess } from '@/lib/server/payments/service';
 import type { AccessResponse } from '@/lib/access';
 
 export default function handler(
@@ -19,8 +20,9 @@ export default function handler(
   // without forcing every user to re-verify.
   const currentlyExempt = isExempt(session.address);
   const currentlyKyc = isKycVerified(session.address);
-  const paymentSatisfied = currentlyExempt || session.paid;
-  const unlocked = paymentSatisfied && currentlyKyc;
+  const launchAccess = getLaunchAccess(session.address);
+  const paymentSatisfied = currentlyExempt || launchAccess.hasLaunchAccess;
+  const unlocked = paymentSatisfied;
   return res.status(200).json({
     unlocked,
     reason: paymentSatisfied
@@ -30,7 +32,10 @@ export default function handler(
       : undefined,
     address: session.address,
     exempt: currentlyExempt,
-    paid: session.paid,
+    paid: launchAccess.hasLaunchAccess,
+    hasLaunchAccess: paymentSatisfied,
     kyc: currentlyKyc,
+    paymentProvider: currentlyExempt ? 'exempt' : launchAccess.paymentProvider,
+    paidAt: launchAccess.paidAt,
   });
 }

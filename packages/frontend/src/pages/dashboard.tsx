@@ -28,6 +28,7 @@ import { Alert } from '@/components/ui/Alert';
 import { AddressLink } from '@/components/ui/AddressLink';
 import { FundingBadge } from '@/components/ui/FundingBadge';
 import { FundingPanel } from '@/components/FundingPanel';
+import { AccessGate } from '@/components/AccessGate';
 import { usePresaleFunding } from '@/hooks/usePresaleFunding';
 import { useProtocolFee } from '@/hooks/useProtocolFee';
 
@@ -369,6 +370,7 @@ export default function Dashboard() {
 
         {/* ── Create tab ─────────────────────────────── */}
         {tab === 'create' && (
+          <AccessGate title="Unlock presale creation" description="Verify your wallet and complete the ₹1000 platform access fee before creating a presale.">
           <div className="space-y-4">
             {formError && <Alert tone="error" onDismiss={() => setFormError(null)}>{formError}</Alert>}
             {formSuccess && (
@@ -567,6 +569,7 @@ export default function Dashboard() {
               </button>
             </form>
           </div>
+          </AccessGate>
         )}
 
         {/* ── Manage tab ─────────────────────────────── */}

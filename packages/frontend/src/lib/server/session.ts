@@ -17,7 +17,7 @@ export interface SessionPayload {
   address: string;
   /** Whether this address is on the platform exemption list. */
   exempt: boolean;
-  /** Whether this address has completed payment. */
+  /** Whether this address had launch access when the session was issued. */
   paid: boolean;
   /** Whether this address is KYC-verified. Re-evaluated on every read so admins
    *  can flip the env without forcing users to re-sign in. */

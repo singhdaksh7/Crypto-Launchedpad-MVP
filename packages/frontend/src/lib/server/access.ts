@@ -51,6 +51,6 @@ export function siweMessage(address: string, nonce: string): string {
     '',
     `Address: ${checksum}`,
     `Nonce: ${nonce}`,
-    'Statement: Authorize this device to access Create Token.',
+    'Statement: Authorize this device to manage creator launch access.',
   ].join('\n');
 }

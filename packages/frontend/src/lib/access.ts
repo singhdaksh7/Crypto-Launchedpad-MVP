@@ -19,24 +19,41 @@ export interface AccessResponse {
   unlocked: boolean;
   reason?: 'exempt' | 'paid';
   address?: string;
-  /** Whether the address has paid (server-truth, useful for UI). */
+  /** Whether the address has launch access through the server-side payment store. */
+  hasLaunchAccess?: boolean;
+  /** Backwards-compatible alias for launch access. */
   paid?: boolean;
   exempt?: boolean;
   /** Whether the address is KYC-verified (server-truth). */
   kyc?: boolean;
+  paymentProvider?: string;
+  paidAt?: string;
 }
 
 export interface OrderResponse {
-  orderId: string;
-  amountInPaise: number;
-  amountInr: number;
-  keyId: string;
-  /** Display currency code, always "INR". */
+  paymentProvider: string;
+  providerOrderId: string;
+  providerSessionId?: string;
+  checkoutUrl?: string;
+  amount: number;
   currency: 'INR';
+  providerStatus: 'pending' | 'successful' | 'failed';
+  /** Present only for the mock/dev provider so local payment flow can be tested. */
+  devProviderSignature?: string;
 }
 
 export interface PaymentVerifyRequest {
-  orderId: string;
-  paymentId: string;
-  signature: string;
+  walletAddress: string;
+  providerOrderId: string;
+  providerPaymentId?: string;
+  providerTransactionId?: string;
+  providerSignature?: string;
+  providerChecksum?: string;
+}
+
+export interface PaymentAccessResponse {
+  walletAddress: string;
+  hasLaunchAccess: boolean;
+  paymentProvider?: string;
+  paidAt?: string;
 }
