@@ -10,7 +10,7 @@ import { isExempt, isKycVerified, siweMessage } from '@/lib/server/access';
 import { getLaunchAccess } from '@/lib/server/payments/service';
 import type { AccessResponse, VerifyRequest } from '@/lib/access';
 
-export default function handler(
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<AccessResponse | { error: string }>,
 ) {
@@ -51,7 +51,7 @@ export default function handler(
 
   const exempt = isExempt(address);
   const kyc = isKycVerified(address);
-  const launchAccess = getLaunchAccess(address);
+  const launchAccess = await getLaunchAccess(address);
   try {
     const session = issueSession(res, {
       address,

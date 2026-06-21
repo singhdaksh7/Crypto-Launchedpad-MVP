@@ -26,6 +26,7 @@ A decentralized launchpad platform built on Binance Smart Chain (BSC). Create ER
 - TailwindCSS
 - ethers.js for Web3 integration
 - Zustand for state management
+- Prisma for persistent payment/access storage
 
 ### Network
 - BSC Testnet (default)
@@ -123,6 +124,25 @@ The app will be available at `http://localhost:3000`
 ```bash
 npm run test
 ```
+
+### Payment/access database
+
+Creator launch access uses a storage adapter selected by `PAYMENT_STORAGE`.
+Local development may use `PAYMENT_STORAGE=memory`, but production builds must
+set `PAYMENT_STORAGE=database` and `DATABASE_URL` for PostgreSQL-backed storage.
+
+Useful Prisma commands:
+
+```bash
+cd packages/frontend
+npx prisma generate
+npx prisma validate
+npx prisma migrate dev
+```
+
+Use `npx prisma db push` only for disposable development databases. For shared
+or production databases, review and run the checked-in migration under
+`packages/frontend/prisma/migrations/`.
 
 ## Smart Contracts
 
@@ -237,7 +257,8 @@ Apply to **Production, Preview, Development**.
 | `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase |
 | `PAYMENT_PROVIDER` | `mock` for local/testnet until SMEPay is configured |
 | `PAYMENT_AMOUNT_INR` | `1000` |
-| `PAYMENT_STORAGE` | `memory` for local/dev only |
+| `PAYMENT_STORAGE` | `database` for deployed environments; `memory` is local/dev only |
+| `DATABASE_URL` | PostgreSQL connection string for Prisma payment/access storage |
 | `MOCK_PAYMENT_SECRET` | random test secret for mock-provider verification |
 | `SMEPAY_MERCHANT_ID` | empty until SMEPay credentials are available |
 | `SMEPAY_SECRET` | empty until SMEPay credentials are available |
@@ -266,15 +287,24 @@ project for testnet previews).
 | `PAYMENT_PROVIDER` | `smepay` after SMEPay API credentials/docs are wired |
 | `PAYMENT_AMOUNT_INR` | `1000` |
 | `PAYMENT_STORAGE` | `database` — production must use persistent storage |
+| `DATABASE_URL` | PostgreSQL connection string for Prisma payment/access storage |
 | `SMEPAY_MERCHANT_ID` | live merchant id from SMEPay |
 | `SMEPAY_SECRET` | live server-side SMEPay secret |
 | `SMEPAY_WEBHOOK_SECRET` | live webhook checksum/signature secret once documented |
 
 Payment/access storage note: the built-in memory adapter is only for local
 development because it resets on server restart and is not reliable on Vercel
-serverless. Production deployments must use `PAYMENT_STORAGE=database` after a
-persistent database adapter is wired; the placeholder database adapter fails
-safely until that integration exists.
+serverless. Production deployments must use `PAYMENT_STORAGE=database` with a
+PostgreSQL `DATABASE_URL`.
+
+After setting `DATABASE_URL`, run the Prisma migration before relying on the
+payment gate:
+
+```bash
+cd packages/frontend
+npx prisma generate
+npx prisma migrate deploy
+```
 
 ### Mainnet pre-deploy checklist
 

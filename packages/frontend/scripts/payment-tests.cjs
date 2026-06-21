@@ -18,6 +18,7 @@ const {
   verifyLaunchAccessPayment,
 } = require('../src/lib/server/payments/service.ts');
 const {
+  createDatabasePaymentStorage,
   createMemoryPaymentStorage,
   getPaymentStorage,
   resetPaymentStorageForTests,
@@ -37,7 +38,7 @@ async function createFixture() {
 test('valid payment verification approves launch access', async () => {
   const { storage, provider, order } = await createFixture();
 
-  const accessBefore = getLaunchAccess(WALLET, storage);
+  const accessBefore = await getLaunchAccess(WALLET, storage);
   assert.equal(accessBefore.hasLaunchAccess, false);
 
   const access = await verifyLaunchAccessPayment(
@@ -114,7 +115,7 @@ test('wrong amount is rejected', async () => {
   const providerPaymentId = 'mock_payment_wrong_amount';
   const providerStatus = 'successful';
 
-  storage.createPaymentOrder({
+  await storage.createPaymentOrder({
     paymentProvider: 'mock',
     providerOrderId,
     providerStatus: 'pending',
@@ -150,7 +151,7 @@ test('wrong amount is rejected', async () => {
 test('access lookup returns false before payment and true after payment', async () => {
   const { storage, provider, order } = await createFixture();
 
-  assert.equal(getLaunchAccess(WALLET, storage).hasLaunchAccess, false);
+  assert.equal((await getLaunchAccess(WALLET, storage)).hasLaunchAccess, false);
   await verifyLaunchAccessPayment(
     {
       walletAddress: WALLET,
@@ -160,12 +161,12 @@ test('access lookup returns false before payment and true after payment', async 
     },
     { storage, provider },
   );
-  assert.equal(getLaunchAccess(WALLET, storage).hasLaunchAccess, true);
+  assert.equal((await getLaunchAccess(WALLET, storage)).hasLaunchAccess, true);
 });
 
-test('storage adapter can create and fetch a payment order', () => {
+test('storage adapter can create and fetch a payment order', async () => {
   const storage = createMemoryPaymentStorage();
-  storage.createPaymentOrder({
+  await storage.createPaymentOrder({
     paymentProvider: 'mock',
     providerOrderId: 'mock_order_fetch',
     providerStatus: 'pending',
@@ -176,23 +177,23 @@ test('storage adapter can create and fetch a payment order', () => {
     createdAt: '2026-01-01T00:00:00.000Z',
   });
 
-  const order = storage.getPaymentOrderByProviderOrderId('mock_order_fetch');
+  const order = await storage.getPaymentOrderByProviderOrderId('mock_order_fetch');
   assert.equal(order.walletAddress, WALLET);
   assert.equal(order.amount, 1000);
 });
 
-test('wallet access approval is durable inside the selected storage adapter', () => {
+test('wallet access approval is durable inside the selected storage adapter', async () => {
   const storage = createMemoryPaymentStorage();
-  storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:00:00.000Z');
+  await storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:00:00.000Z');
 
-  const access = storage.getWalletAccess(WALLET);
+  const access = await storage.getWalletAccess(WALLET);
   assert.equal(access.hasLaunchAccess, true);
   assert.equal(access.paymentProvider, 'mock');
 });
 
-test('consumed payment replay protection works at storage level', () => {
+test('consumed payment replay protection works at storage level', async () => {
   const storage = createMemoryPaymentStorage();
-  storage.createPaymentOrder({
+  await storage.createPaymentOrder({
     paymentProvider: 'mock',
     providerOrderId: 'mock_order_consumed',
     providerStatus: 'pending',
@@ -202,12 +203,12 @@ test('consumed payment replay protection works at storage level', () => {
     status: 'pending',
     createdAt: '2026-01-01T00:00:00.000Z',
   });
-  storage.markPaymentConsumed('mock_order_consumed', {
+  await storage.markPaymentConsumed('mock_order_consumed', {
     providerPaymentId: 'mock_payment_consumed',
     consumedAt: '2026-01-01T00:01:00.000Z',
   });
 
-  assert.equal(storage.checkPaymentConsumed('mock_payment_consumed'), true);
+  assert.equal(await storage.checkPaymentConsumed('mock_payment_consumed'), true);
 });
 
 test('production memory-storage guard fails safely', () => {
@@ -217,7 +218,7 @@ test('production memory-storage guard fails safely', () => {
   process.env.NODE_ENV = 'production';
   process.env.PAYMENT_STORAGE = 'memory';
 
-  assert.throws(() => getPaymentStorage(), /local-development only/);
+  assert.throws(() => getPaymentStorage(), /PAYMENT_STORAGE=database is required/);
 
   resetPaymentStorageForTests();
   if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
@@ -226,23 +227,85 @@ test('production memory-storage guard fails safely', () => {
   else process.env.PAYMENT_STORAGE = previousStorage;
 });
 
-test('requireCreatorAccess rejects unpaid wallet', () => {
-  const storage = createMemoryPaymentStorage();
+test('production missing payment storage fails safely', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousStorage = process.env.PAYMENT_STORAGE;
+  resetPaymentStorageForTests();
+  process.env.NODE_ENV = 'production';
+  delete process.env.PAYMENT_STORAGE;
 
-  assert.throws(() => requireCreatorAccess(WALLET, storage), /Payment required/);
+  assert.throws(() => getPaymentStorage(), /PAYMENT_STORAGE=database is required/);
+
+  resetPaymentStorageForTests();
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+  if (previousStorage === undefined) delete process.env.PAYMENT_STORAGE;
+  else process.env.PAYMENT_STORAGE = previousStorage;
 });
 
-test('requireCreatorAccess allows paid wallet', () => {
-  const storage = createMemoryPaymentStorage();
-  storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:00:00.000Z');
+test('invalid payment storage selection fails clearly', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousStorage = process.env.PAYMENT_STORAGE;
+  resetPaymentStorageForTests();
+  process.env.NODE_ENV = 'test';
+  process.env.PAYMENT_STORAGE = 'unknown';
 
-  const access = requireCreatorAccess(WALLET, storage);
+  assert.throws(() => getPaymentStorage(), /Unsupported PAYMENT_STORAGE/);
+
+  resetPaymentStorageForTests();
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+  if (previousStorage === undefined) delete process.env.PAYMENT_STORAGE;
+  else process.env.PAYMENT_STORAGE = previousStorage;
+});
+
+test('database storage selection requires DATABASE_URL', () => {
+  const previousStorage = process.env.PAYMENT_STORAGE;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  resetPaymentStorageForTests();
+  process.env.PAYMENT_STORAGE = 'database';
+  delete process.env.DATABASE_URL;
+
+  assert.throws(() => getPaymentStorage(), /DATABASE_URL is required/);
+
+  resetPaymentStorageForTests();
+  if (previousStorage === undefined) delete process.env.PAYMENT_STORAGE;
+  else process.env.PAYMENT_STORAGE = previousStorage;
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+});
+
+test('database adapter methods fail clearly without DATABASE_URL', async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  const storage = createDatabasePaymentStorage();
+
+  await assert.rejects(
+    () => storage.getWalletAccess(WALLET),
+    /DATABASE_URL is required/,
+  );
+
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+});
+
+test('requireCreatorAccess rejects unpaid wallet', async () => {
+  const storage = createMemoryPaymentStorage();
+
+  await assert.rejects(() => requireCreatorAccess(WALLET, storage), /Payment required/);
+});
+
+test('requireCreatorAccess allows paid wallet', async () => {
+  const storage = createMemoryPaymentStorage();
+  await storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:00:00.000Z');
+
+  const access = await requireCreatorAccess(WALLET, storage);
   assert.equal(access.hasLaunchAccess, true);
 });
 
-test('admin list helpers omit secrets and expose safe payment visibility fields', () => {
+test('admin list helpers omit secrets and expose safe payment visibility fields', async () => {
   const storage = createMemoryPaymentStorage();
-  storage.createPaymentOrder({
+  await storage.createPaymentOrder({
     paymentProvider: 'mock',
     providerOrderId: 'mock_order_admin',
     providerPaymentId: 'mock_payment_admin',
@@ -255,10 +318,10 @@ test('admin list helpers omit secrets and expose safe payment visibility fields'
     createdAt: '2026-01-01T00:00:00.000Z',
     paidAt: '2026-01-01T00:01:00.000Z',
   });
-  storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:01:00.000Z');
+  await storage.approveWalletAccess(WALLET, 'mock', '2026-01-01T00:01:00.000Z');
 
-  const [order] = listPaymentOrdersForAdmin(storage);
-  const [access] = listLaunchAccessForAdmin(storage);
+  const [order] = await listPaymentOrdersForAdmin(storage);
+  const [access] = await listLaunchAccessForAdmin(storage);
 
   assert.equal(order.providerOrderId, 'mock_order_admin');
   assert.equal(order.walletAddress, WALLET);

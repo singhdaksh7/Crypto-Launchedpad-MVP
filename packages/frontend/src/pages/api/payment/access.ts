@@ -3,7 +3,7 @@ import { isExempt } from '@/lib/server/access';
 import { getLaunchAccess } from '@/lib/server/payments/service';
 import type { PaymentAccessResponse } from '@/lib/access';
 
-export default function handler(
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<PaymentAccessResponse | { error: string }>,
 ) {
@@ -17,7 +17,7 @@ export default function handler(
     return res.status(400).json({ error: 'Invalid wallet address.' });
   }
 
-  const access = getLaunchAccess(walletAddress);
+  const access = await getLaunchAccess(walletAddress);
   if (isExempt(walletAddress)) {
     return res.status(200).json({
       walletAddress,

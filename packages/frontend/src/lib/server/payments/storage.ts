@@ -1,4 +1,7 @@
 import type { LaunchAccessRecord, PaymentOrderRecord } from './types';
+import { prisma } from '../prisma';
+
+type MaybePromise<T> = T | Promise<T>;
 
 export interface PaymentOrderSummary {
   paymentProvider: string;
@@ -21,12 +24,12 @@ export interface LaunchAccessSummary {
 }
 
 export interface PaymentStorage {
-  createPaymentOrder(order: PaymentOrderRecord): void;
-  getPaymentOrderByProviderOrderId(providerOrderId: string): PaymentOrderRecord | null;
+  createPaymentOrder(order: PaymentOrderRecord): MaybePromise<void>;
+  getPaymentOrderByProviderOrderId(providerOrderId: string): MaybePromise<PaymentOrderRecord | null>;
   updatePaymentOrderStatus(
     providerOrderId: string,
     patch: Partial<PaymentOrderRecord>,
-  ): PaymentOrderRecord;
+  ): MaybePromise<PaymentOrderRecord>;
   markPaymentConsumed(
     providerOrderId: string,
     input: {
@@ -34,13 +37,13 @@ export interface PaymentStorage {
       providerTransactionId?: string;
       consumedAt: string;
     },
-  ): PaymentOrderRecord;
-  checkPaymentConsumed(providerPaymentId?: string, providerTransactionId?: string): boolean;
-  approveWalletAccess(walletAddress: string, provider: string, paidAt: string): void;
-  getWalletAccess(walletAddress: string): LaunchAccessRecord;
-  listPaymentOrders(): PaymentOrderSummary[];
-  listWalletAccessApprovals(): LaunchAccessSummary[];
-  reset(): void;
+  ): MaybePromise<PaymentOrderRecord>;
+  checkPaymentConsumed(providerPaymentId?: string, providerTransactionId?: string): MaybePromise<boolean>;
+  approveWalletAccess(walletAddress: string, provider: string, paidAt: string, providerOrderId?: string): MaybePromise<void>;
+  getWalletAccess(walletAddress: string): MaybePromise<LaunchAccessRecord>;
+  listPaymentOrders(): MaybePromise<PaymentOrderSummary[]>;
+  listWalletAccessApprovals(): MaybePromise<LaunchAccessSummary[]>;
+  reset(): MaybePromise<void>;
 }
 
 function normalize(address: string): string {
@@ -129,23 +132,235 @@ export function createMemoryPaymentStorage(): PaymentStorage {
 }
 
 export function createDatabasePaymentStorage(): PaymentStorage {
-  const fail = () => {
-    throw new Error(
-      'Database payment storage is not configured. Set up a persistent DB adapter before using PAYMENT_STORAGE=database.',
-    );
+  function requireDatabaseUrl() {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is required when PAYMENT_STORAGE=database.');
+    }
+  }
+
+  function toDate(value?: string): Date | undefined {
+    return value ? new Date(value) : undefined;
+  }
+
+  function toIso(value?: Date | null): string | undefined {
+    return value ? value.toISOString() : undefined;
+  }
+
+  function consumeKey(providerPaymentId?: string, providerTransactionId?: string): string {
+    if (providerPaymentId) return `payment:${providerPaymentId}`;
+    if (providerTransactionId) return `transaction:${providerTransactionId}`;
+    throw new Error('Cannot consume payment without provider payment or transaction id.');
+  }
+
+  function consumeKeys(providerPaymentId?: string, providerTransactionId?: string): string[] {
+    const keys = [
+      providerPaymentId ? `payment:${providerPaymentId}` : null,
+      providerTransactionId ? `transaction:${providerTransactionId}` : null,
+    ].filter(Boolean) as string[];
+    if (keys.length === 0) {
+      throw new Error('Cannot consume payment without provider payment or transaction id.');
+    }
+    return keys;
+  }
+
+  function mapOrder(order: any): PaymentOrderRecord {
+    const consumedAt = order.consumedPayments?.[0]?.createdAt;
+    return {
+      paymentProvider: order.paymentProvider,
+      providerOrderId: order.providerOrderId,
+      providerPaymentId: order.providerPaymentId || undefined,
+      providerTransactionId: order.providerTransactionId || undefined,
+      providerStatus: order.providerStatus || 'pending',
+      walletAddress: order.walletAddress,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+      createdAt: order.createdAt.toISOString(),
+      paidAt: toIso(order.paidAt),
+      consumedAt: toIso(consumedAt),
+    };
+  }
+
+  function mapAccess(access: any, walletAddress?: string): LaunchAccessRecord {
+    return {
+      walletAddress: access?.walletAddress || normalize(walletAddress || ''),
+      hasLaunchAccess: !!access?.hasLaunchAccess,
+      paymentProvider: access?.paymentProvider || undefined,
+      paidAt: toIso(access?.approvedAt),
+    };
+  }
+
+  function summary(order: any): PaymentOrderSummary {
+    const consumedAt = order.consumedPayments?.[0]?.createdAt;
+    return {
+      paymentProvider: order.paymentProvider,
+      providerOrderId: order.providerOrderId,
+      walletAddress: order.walletAddress,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+      providerStatus: order.providerStatus || 'pending',
+      createdAt: order.createdAt.toISOString(),
+      paidAt: toIso(order.paidAt),
+      consumedAt: toIso(consumedAt),
+    };
+  }
+
+  const includeConsumed = {
+    consumedPayments: {
+      orderBy: { createdAt: 'desc' as const },
+      take: 1,
+    },
   };
 
   return {
-    createPaymentOrder: fail,
-    getPaymentOrderByProviderOrderId: fail,
-    updatePaymentOrderStatus: fail,
-    markPaymentConsumed: fail,
-    checkPaymentConsumed: fail,
-    approveWalletAccess: fail,
-    getWalletAccess: fail,
-    listPaymentOrders: fail,
-    listWalletAccessApprovals: fail,
-    reset: fail,
+    async createPaymentOrder(order) {
+      requireDatabaseUrl();
+      await prisma.paymentOrder.upsert({
+        where: { providerOrderId: order.providerOrderId },
+        create: {
+          paymentProvider: order.paymentProvider,
+          providerOrderId: order.providerOrderId,
+          providerPaymentId: order.providerPaymentId,
+          providerTransactionId: order.providerTransactionId,
+          walletAddress: normalize(order.walletAddress),
+          amount: order.amount,
+          currency: order.currency,
+          status: order.status,
+          providerStatus: order.providerStatus,
+          createdAt: toDate(order.createdAt),
+          paidAt: toDate(order.paidAt),
+        },
+        update: {},
+      });
+    },
+    async getPaymentOrderByProviderOrderId(providerOrderId) {
+      requireDatabaseUrl();
+      const order = await prisma.paymentOrder.findUnique({
+        where: { providerOrderId },
+        include: includeConsumed,
+      });
+      return order ? mapOrder(order) : null;
+    },
+    async updatePaymentOrderStatus(providerOrderId, patch) {
+      requireDatabaseUrl();
+      const order = await prisma.paymentOrder.update({
+        where: { providerOrderId },
+        data: {
+          providerPaymentId: patch.providerPaymentId,
+          providerTransactionId: patch.providerTransactionId,
+          walletAddress: patch.walletAddress ? normalize(patch.walletAddress) : undefined,
+          amount: patch.amount,
+          currency: patch.currency,
+          status: patch.status,
+          providerStatus: patch.providerStatus,
+          paidAt: toDate(patch.paidAt),
+        },
+        include: includeConsumed,
+      });
+      return mapOrder(order);
+    },
+    async markPaymentConsumed(providerOrderId, input) {
+      requireDatabaseUrl();
+      const order = await prisma.paymentOrder.findUnique({
+        where: { providerOrderId },
+      });
+      if (!order) throw new Error('Payment order not found.');
+
+      const consumedPayments = consumeKeys(input.providerPaymentId, input.providerTransactionId).map((key) =>
+        prisma.consumedPayment.upsert({
+          where: { consumeKey: key },
+          create: {
+            paymentProvider: order.paymentProvider,
+            providerPaymentId: input.providerPaymentId,
+            providerTransactionId: input.providerTransactionId,
+            consumeKey: key,
+            providerOrderId,
+            walletAddress: order.walletAddress,
+            createdAt: toDate(input.consumedAt),
+          },
+          update: {},
+        }),
+      );
+      await prisma.$transaction(consumedPayments);
+
+      const updated = await prisma.paymentOrder.update({
+        where: { providerOrderId },
+        data: {
+          providerPaymentId: input.providerPaymentId,
+          providerTransactionId: input.providerTransactionId,
+        },
+        include: includeConsumed,
+      });
+      return mapOrder(updated);
+    },
+    async checkPaymentConsumed(providerPaymentId, providerTransactionId) {
+      requireDatabaseUrl();
+      if (!providerPaymentId && !providerTransactionId) return false;
+      const keys = consumeKeys(providerPaymentId, providerTransactionId);
+      const count = await prisma.consumedPayment.count({
+        where: { consumeKey: { in: keys } },
+      });
+      return count > 0;
+    },
+    async approveWalletAccess(walletAddress, paymentProvider, paidAt, providerOrderId) {
+      requireDatabaseUrl();
+      const wallet = normalize(walletAddress);
+      await prisma.walletAccess.upsert({
+        where: { walletAddress: wallet },
+        create: {
+          walletAddress: wallet,
+          hasLaunchAccess: true,
+          paymentProvider,
+          providerOrderId,
+          approvedAt: toDate(paidAt),
+        },
+        update: {
+          hasLaunchAccess: true,
+          paymentProvider,
+          providerOrderId,
+          approvedAt: toDate(paidAt),
+        },
+      });
+    },
+    async getWalletAccess(walletAddress) {
+      requireDatabaseUrl();
+      const wallet = normalize(walletAddress);
+      const access = await prisma.walletAccess.findUnique({
+        where: { walletAddress: wallet },
+      });
+      return mapAccess(access, wallet);
+    },
+    async listPaymentOrders() {
+      requireDatabaseUrl();
+      const orders = await prisma.paymentOrder.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        include: includeConsumed,
+      });
+      return orders.map(summary);
+    },
+    async listWalletAccessApprovals() {
+      requireDatabaseUrl();
+      const approvals = await prisma.walletAccess.findMany({
+        orderBy: { updatedAt: 'desc' },
+        take: 100,
+      });
+      return approvals.map((record) => ({
+        walletAddress: record.walletAddress,
+        hasLaunchAccess: record.hasLaunchAccess,
+        paymentProvider: record.paymentProvider || undefined,
+        paidAt: toIso(record.approvedAt),
+      }));
+    },
+    async reset() {
+      requireDatabaseUrl();
+      await prisma.$transaction([
+        prisma.consumedPayment.deleteMany(),
+        prisma.walletAccess.deleteMany(),
+        prisma.paymentOrder.deleteMany(),
+      ]);
+    },
   };
 }
 
@@ -155,16 +370,23 @@ const globalForPayments = globalThis as typeof globalThis & {
 
 export function getPaymentStorage(): PaymentStorage {
   if (!globalForPayments.__launchpadPaymentStorage) {
-    const selected = (process.env.PAYMENT_STORAGE || 'memory').trim().toLowerCase();
+    const selected = (process.env.PAYMENT_STORAGE || '').trim().toLowerCase();
+    if (process.env.NODE_ENV === 'production' && selected !== 'database') {
+      throw new Error(
+        'PAYMENT_STORAGE=database is required in production. Configure DATABASE_URL and persistent payment storage.',
+      );
+    }
     if (selected === 'database') {
-      globalForPayments.__launchpadPaymentStorage = createDatabasePaymentStorage();
-    } else {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error(
-          'PAYMENT_STORAGE=memory is local-development only. Configure PAYMENT_STORAGE=database with a persistent DB adapter before production.',
-        );
+      if (!process.env.DATABASE_URL) {
+        throw new Error('DATABASE_URL is required when PAYMENT_STORAGE=database.');
       }
+      globalForPayments.__launchpadPaymentStorage = createDatabasePaymentStorage();
+    } else if (!selected || selected === 'memory') {
       globalForPayments.__launchpadPaymentStorage = createMemoryPaymentStorage();
+    } else {
+      throw new Error(
+        `Unsupported PAYMENT_STORAGE="${selected}". Use "memory" locally or "database" with DATABASE_URL.`,
+      );
     }
   }
   return globalForPayments.__launchpadPaymentStorage;

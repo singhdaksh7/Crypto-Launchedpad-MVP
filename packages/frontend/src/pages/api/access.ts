@@ -4,7 +4,7 @@ import { isExempt, isKycVerified } from '@/lib/server/access';
 import { getLaunchAccess } from '@/lib/server/payments/service';
 import type { AccessResponse } from '@/lib/access';
 
-export default function handler(
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<AccessResponse>,
 ) {
@@ -20,7 +20,7 @@ export default function handler(
   // without forcing every user to re-verify.
   const currentlyExempt = isExempt(session.address);
   const currentlyKyc = isKycVerified(session.address);
-  const launchAccess = getLaunchAccess(session.address);
+  const launchAccess = await getLaunchAccess(session.address);
   const paymentSatisfied = currentlyExempt || launchAccess.hasLaunchAccess;
   const unlocked = paymentSatisfied;
   return res.status(200).json({

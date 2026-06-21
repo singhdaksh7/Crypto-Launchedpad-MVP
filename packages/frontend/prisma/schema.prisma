@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PaymentOrder {
+  id                    String   @id @default(cuid())
+  paymentProvider       String
+  providerOrderId       String   @unique
+  providerPaymentId     String?
+  providerTransactionId String?
+  walletAddress         String
+  amount                Int
+  currency              String
+  status                String
+  providerStatus        String?
+  metadata              Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  paidAt                DateTime?
+
+  consumedPayments ConsumedPayment[]
+
+  @@index([walletAddress])
+  @@index([status])
+}
+
+model ConsumedPayment {
+  id                    String   @id @default(cuid())
+  paymentProvider       String
+  providerPaymentId     String?
+  providerTransactionId String?
+  consumeKey            String   @unique
+  providerOrderId       String?
+  walletAddress         String
+  createdAt             DateTime @default(now())
+
+  paymentOrder PaymentOrder? @relation(fields: [providerOrderId], references: [providerOrderId], onDelete: SetNull)
+
+  @@index([walletAddress])
+}
+
+model WalletAccess {
+  id                String   @id @default(cuid())
+  walletAddress     String   @unique
+  hasLaunchAccess   Boolean  @default(false)
+  paymentProvider   String?
+  providerOrderId   String?
+  approvedAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
