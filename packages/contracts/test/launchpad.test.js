@@ -336,4 +336,191 @@ describe("Launchpad", function () {
       expect(await token.balanceOf(launchpadAddr)).to.equal(0n);
     });
   });
+
+  describe("Pausable", function () {
+    it("only the platform owner can pause/unpause", async function () {
+      await expect(launchpad.connect(seller).pause()).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
+      await launchpad.connect(owner).pause();
+      await expect(launchpad.connect(seller).unpause()).to.be.revertedWith(
+        "Ownable: caller is not the owner"
+      );
+      await launchpad.connect(owner).unpause();
+    });
+
+    it("blocks buys and funding while paused, resumes after unpause", async function () {
+      const token = await createToken();
+      const { startTime } = await createPresale(token);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await launchpad.connect(owner).pause();
+      await time.increaseTo(startTime + 1);
+
+      await expect(
+        launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Pausable: paused");
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("1"));
+      await expect(
+        launchpad.connect(seller).fundPresale(0, ethers.parseEther("1"))
+      ).to.be.revertedWith("Pausable: paused");
+
+      await launchpad.connect(owner).unpause();
+      await expect(
+        launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("1") })
+      ).to.emit(launchpad, "TokensPurchased");
+    });
+
+    it("still allows claims while paused so users are never locked out", async function () {
+      const token = await createToken();
+      const { startTime, endTime } = await createPresale(token);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await time.increaseTo(startTime + 1);
+      await launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("2") });
+      await time.increaseTo(endTime + 1);
+
+      await launchpad.connect(owner).pause();
+      await expect(launchpad.connect(buyer).claimTokens(0)).to.emit(
+        launchpad,
+        "TokensClaimed"
+      );
+    });
+  });
+
+  describe("Emergency refund mode", function () {
+    it("only the platform owner can enable it", async function () {
+      const token = await createToken();
+      await createPresale(token);
+      await expect(
+        launchpad.connect(seller).enableEmergencyRefund(0)
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+    });
+
+    it("blocks buys, lets buyers refund mid-sale and seller recover tokens", async function () {
+      const token = await createToken();
+      const { startTime } = await createPresale(token);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await time.increaseTo(startTime + 1);
+      // Buyer puts in 2 BNB (above softcap of 1) — a normal refund would be blocked.
+      await launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("2") });
+
+      // Platform owner forces refund mode while the sale is still live.
+      await expect(launchpad.connect(owner).enableEmergencyRefund(0))
+        .to.emit(launchpad, "EmergencyRefundEnabled")
+        .withArgs(0);
+
+      // Further buys are blocked.
+      await expect(
+        launchpad.connect(other).buyTokens(0, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("Refund mode");
+
+      // Buyer reclaims BNB even though softcap was reached and sale not ended.
+      await expect(launchpad.connect(buyer).refundContribution(0))
+        .to.emit(launchpad, "RefundClaimed")
+        .withArgs(0, buyer.address, ethers.parseEther("2"));
+
+      // Seller recovers all deposited tokens.
+      const launchpadAddr = await launchpad.getAddress();
+      await expect(launchpad.connect(seller).recoverFundedTokensOnFailure(0))
+        .to.emit(launchpad, "OwnerTokensRecovered")
+        .withArgs(0, seller.address, ethers.parseEther("100000"));
+      expect(await token.balanceOf(launchpadAddr)).to.equal(0n);
+    });
+
+    it("blocks the seller from withdrawing once refund mode is on", async function () {
+      const token = await createToken();
+      const { startTime, endTime } = await createPresale(token);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await time.increaseTo(startTime + 1);
+      await launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("2") });
+
+      await launchpad.connect(owner).enableEmergencyRefund(0);
+      await time.increaseTo(endTime + 1);
+
+      await expect(
+        launchpad.connect(seller).withdrawFunds(0)
+      ).to.be.revertedWith("Refund mode");
+      // And claims are blocked so buyers must take the refund path.
+      await expect(
+        launchpad.connect(buyer).claimTokens(0)
+      ).to.be.revertedWith("Refund mode");
+    });
+
+    it("cannot be enabled after the seller has withdrawn", async function () {
+      const token = await createToken();
+      const { startTime, endTime } = await createPresale(token);
+
+      await token
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+      await launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000"));
+
+      await time.increaseTo(startTime + 1);
+      await launchpad.connect(buyer).buyTokens(0, { value: ethers.parseEther("2") });
+      await time.increaseTo(endTime + 1);
+      await launchpad.connect(seller).withdrawFunds(0);
+
+      await expect(
+        launchpad.connect(owner).enableEmergencyRefund(0)
+      ).to.be.revertedWith("Already finalized");
+    });
+  });
+
+  describe("Non-standard tokens", function () {
+    it("credits the actual delivered balance for fee-on-transfer tokens", async function () {
+      // Deploy a 10%-fee token held by the seller.
+      const FeeToken = await ethers.getContractFactory("FeeOnTransferToken");
+      const feeToken = await FeeToken.connect(seller).deploy(
+        ethers.parseEther("1000000")
+      );
+      await feeToken.waitForDeployment();
+
+      const now = await time.latest();
+      await launchpad
+        .connect(seller)
+        .createPresale(
+          await feeToken.getAddress(),
+          ethers.parseEther("0.0001"),
+          ethers.parseEther("1"),
+          ethers.parseEther("10"),
+          now + 60,
+          now + 3660,
+          ethers.parseEther("5")
+        );
+
+      await feeToken
+        .connect(seller)
+        .approve(await launchpad.getAddress(), ethers.parseEther("100000"));
+
+      // Request 100k, but the token burns 10% in transit, so only 90k arrive.
+      await expect(launchpad.connect(seller).fundPresale(0, ethers.parseEther("100000")))
+        .to.emit(launchpad, "PresaleFunded")
+        .withArgs(0, seller.address, ethers.parseEther("90000"));
+
+      expect(await launchpad.presaleTokensFunded(0)).to.equal(
+        ethers.parseEther("90000")
+      );
+    });
+  });
 });

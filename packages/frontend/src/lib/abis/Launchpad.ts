@@ -149,4 +149,56 @@ export const LAUNCHPAD_ABI = [
     name: "PresaleFunded",
     type: "event",
   },
+  // ── Seller recovery (failed or emergency-refunded presale) ──
+  {
+    inputs: [{ internalType: "uint256", name: "presaleId", type: "uint256" }],
+    name: "recoverFundedTokensOnFailure",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  // ── Platform admin: pause + emergency refund ────────────────
+  {
+    inputs: [],
+    name: "pause",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "unpause",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "paused",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "presaleId", type: "uint256" }],
+    name: "enableEmergencyRefund",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+    name: "emergencyRefund",
+    outputs: [{ internalType: "bool", name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: "uint256", name: "presaleId", type: "uint256" },
+    ],
+    name: "EmergencyRefundEnabled",
+    type: "event",
+  },
 ];

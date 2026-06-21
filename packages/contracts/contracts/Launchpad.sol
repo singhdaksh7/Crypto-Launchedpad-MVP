@@ -2,10 +2,14 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 
-contract Launchpad is Ownable, ReentrancyGuard {
+contract Launchpad is Ownable, ReentrancyGuard, Pausable {
+    using SafeERC20 for IERC20;
+
     struct PresaleConfig {
         address tokenAddress;
         address owner;
@@ -35,6 +39,12 @@ contract Launchpad is Ownable, ReentrancyGuard {
     /// supply, so claims can never fail on a properly behaved presale.
     mapping(uint256 => uint256) public presaleTokensFunded;
 
+    /// When set by the platform owner, a presale enters refund-only mode: buys
+    /// are blocked, buyers may reclaim their BNB regardless of softcap, and the
+    /// seller may recover funded tokens. Only settable while the presale's funds
+    /// are still in this contract (before {withdrawFunds} finalizes it).
+    mapping(uint256 => bool) public emergencyRefund;
+
     uint256 public presaleCounter;
     uint256 public platformFee; // in basis points (e.g., 250 = 2.5%)
     address public feeRecipient;
@@ -62,6 +72,7 @@ contract Launchpad is Ownable, ReentrancyGuard {
     event PresaleFunded(uint256 indexed presaleId, address indexed funder, uint256 amount);
     event RefundClaimed(uint256 indexed presaleId, address indexed buyer, uint256 amount);
     event OwnerTokensRecovered(uint256 indexed presaleId, address indexed owner, uint256 amount);
+    event EmergencyRefundEnabled(uint256 indexed presaleId);
 
     constructor() Ownable() {
         platformFee = 250; // 2.5%
@@ -113,10 +124,11 @@ contract Launchpad is Ownable, ReentrancyGuard {
         return presaleId;
     }
 
-    function buyTokens(uint256 presaleId) public payable nonReentrant {
+    function buyTokens(uint256 presaleId) public payable nonReentrant whenNotPaused {
         require(msg.value > 0, "Must send BNB");
-        
+
         PresaleConfig storage config = presales[presaleId];
+        require(!emergencyRefund[presaleId], "Refund mode");
         require(config.isActive, "Presale not active");
         require(block.timestamp >= config.startTime, "Presale not started");
         require(block.timestamp < config.endTime, "Presale ended");
@@ -153,6 +165,7 @@ contract Launchpad is Ownable, ReentrancyGuard {
         PresaleConfig storage config = presales[presaleId];
         UserContribution storage userContrib = contributions[presaleId][msg.sender];
 
+        require(!emergencyRefund[presaleId], "Refund mode");
         require(block.timestamp > config.endTime, "Presale not ended");
         require(config.totalRaised >= config.softcap, "Softcap not reached");
         require(userContrib.amount > 0, "No contribution");
@@ -160,11 +173,7 @@ contract Launchpad is Ownable, ReentrancyGuard {
 
         userContrib.claimed = true;
 
-        IERC20 token = IERC20(config.tokenAddress);
-        require(
-            token.transfer(msg.sender, userContrib.tokenAmount),
-            "Token transfer failed"
-        );
+        IERC20(config.tokenAddress).safeTransfer(msg.sender, userContrib.tokenAmount);
 
         emit TokensClaimed(presaleId, msg.sender, userContrib.tokenAmount);
     }
@@ -172,6 +181,7 @@ contract Launchpad is Ownable, ReentrancyGuard {
     function withdrawFunds(uint256 presaleId) public nonReentrant {
         PresaleConfig storage config = presales[presaleId];
         require(msg.sender == config.owner, "Only owner can withdraw");
+        require(!emergencyRefund[presaleId], "Refund mode");
         require(block.timestamp > config.endTime, "Presale not ended");
         require(config.totalRaised >= config.softcap, "Softcap not reached");
         require(!config.isFinalized, "Already finalized");
@@ -194,8 +204,15 @@ contract Launchpad is Ownable, ReentrancyGuard {
         PresaleConfig storage config = presales[presaleId];
         UserContribution storage userContrib = contributions[presaleId][msg.sender];
 
-        require(block.timestamp > config.endTime, "Presale not ended");
-        require(config.totalRaised < config.softcap, "Softcap reached");
+        // Two refund triggers: the presale ended below softcap, or the platform
+        // owner forced refund mode. Emergency mode does not require the sale to
+        // have ended, so funds can be returned mid-sale if something is wrong.
+        if (emergencyRefund[presaleId]) {
+            require(!config.isFinalized, "Already finalized");
+        } else {
+            require(block.timestamp > config.endTime, "Presale not ended");
+            require(config.totalRaised < config.softcap, "Softcap reached");
+        }
         require(userContrib.amount > 0, "No contribution");
         require(!userContrib.claimed, "Already claimed");
 
@@ -218,19 +235,17 @@ contract Launchpad is Ownable, ReentrancyGuard {
         PresaleConfig storage config = presales[presaleId];
         require(config.tokenAddress != address(0), "Presale does not exist");
         require(msg.sender == config.owner, "Only presale owner");
-        require(block.timestamp > config.endTime, "Presale not ended");
-        require(config.totalRaised < config.softcap, "Softcap reached");
+        if (!emergencyRefund[presaleId]) {
+            require(block.timestamp > config.endTime, "Presale not ended");
+            require(config.totalRaised < config.softcap, "Softcap reached");
+        }
 
         uint256 amount = presaleTokensFunded[presaleId];
         require(amount > 0, "Nothing to recover");
 
         presaleTokensFunded[presaleId] = 0;
 
-        IERC20 token = IERC20(config.tokenAddress);
-        require(
-            token.transfer(msg.sender, amount),
-            "Token transfer failed"
-        );
+        IERC20(config.tokenAddress).safeTransfer(msg.sender, amount);
 
         emit OwnerTokensRecovered(presaleId, msg.sender, amount);
     }
@@ -240,22 +255,27 @@ contract Launchpad is Ownable, ReentrancyGuard {
     ///      Anyone can call this, but funds are accounted to `presaleId`.
     ///      Restricted to the presale owner to keep accounting clean and to prevent
     ///      grief-funding by third parties.
-    function fundPresale(uint256 presaleId, uint256 amount) public nonReentrant {
+    function fundPresale(uint256 presaleId, uint256 amount) public nonReentrant whenNotPaused {
         PresaleConfig storage config = presales[presaleId];
         require(config.tokenAddress != address(0), "Presale does not exist");
         require(msg.sender == config.owner, "Only presale owner");
         require(amount > 0, "Amount must be > 0");
         require(!config.isFinalized, "Presale already finalized");
+        require(!emergencyRefund[presaleId], "Refund mode");
 
-        presaleTokensFunded[presaleId] += amount;
-
+        // Credit the *actual* balance delta, not the requested `amount`. A
+        // fee-on-transfer or otherwise non-standard token can deliver fewer
+        // tokens than requested; crediting `amount` would over-state funded
+        // supply and let buys be accepted that claims could never satisfy.
         IERC20 token = IERC20(config.tokenAddress);
-        require(
-            token.transferFrom(msg.sender, address(this), amount),
-            "Token transferFrom failed"
-        );
+        uint256 balBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = token.balanceOf(address(this)) - balBefore;
+        require(received > 0, "No tokens received");
 
-        emit PresaleFunded(presaleId, msg.sender, amount);
+        presaleTokensFunded[presaleId] += received;
+
+        emit PresaleFunded(presaleId, msg.sender, received);
     }
 
     /// @notice Worst-case token amount required to fully fill the presale at hardcap.
@@ -312,5 +332,29 @@ contract Launchpad is Ownable, ReentrancyGuard {
     function setPlatformFee(uint256 newFee) public onlyOwner {
         require(newFee <= 1000, "Fee too high"); // Max 10%
         platformFee = newFee;
+    }
+
+    /// @notice Global kill switch: blocks new buys and funding across all presales.
+    ///         Claims and refunds remain available so users are never locked out.
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    function unpause() public onlyOwner {
+        _unpause();
+    }
+
+    /// @notice Force a single presale into refund-only mode (e.g. a scam token or
+    ///         a discovered bug). Buyers can then reclaim BNB and the seller can
+    ///         recover funded tokens, regardless of softcap/end time. Only allowed
+    ///         while funds are still held here (before withdrawal finalizes it).
+    function enableEmergencyRefund(uint256 presaleId) public onlyOwner {
+        PresaleConfig storage config = presales[presaleId];
+        require(config.tokenAddress != address(0), "Presale does not exist");
+        require(!config.isFinalized, "Already finalized");
+        require(!emergencyRefund[presaleId], "Already enabled");
+
+        emergencyRefund[presaleId] = true;
+        emit EmergencyRefundEnabled(presaleId);
     }
 }
