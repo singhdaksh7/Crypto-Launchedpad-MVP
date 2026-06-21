@@ -48,7 +48,12 @@ Thumbs.db
 **/*.sol.js
 
 # Contract Artifacts
+# Solidity coverage
+packages/contracts/coverage.json
+packages/contracts/coverage/
+coverage/
 packages/contracts/artifacts/
+
 packages/contracts/cache/
 .claude/
 tsconfig.tsbuildinfo 
