@@ -3,7 +3,7 @@ import { useWeb3Store } from '@/store';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import { formatAddress, getChainId } from '@/lib/web3';
 import { addressUrl, networkLabel } from '@/lib/links';
-import { TESTNET_FAUCET_URL } from '@/lib/chain';
+import { faucetUrl } from '@/lib/chain';
 import { getWalletMeta, type WalletId } from '@/lib/wallets';
 import { Icon } from './ui/Icon';
 import { WalletPicker } from './WalletPicker';
@@ -79,6 +79,7 @@ export const WalletButton: React.FC = () => {
   const required = getChainId();
   const wrongNetwork = chainId !== null && chainId !== required;
   const walletMeta = lastWalletId ? getWalletMeta(lastWalletId) : null;
+  const faucet = faucetUrl();
 
   return (
     <div ref={ref} className="relative">
@@ -137,15 +138,17 @@ export const WalletButton: React.FC = () => {
                 <Icon name="external" size={14} />
                 View on explorer
               </a>
-              <a
-                href={TESTNET_FAUCET_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full px-4 py-2 text-left text-sm hover:bg-white/5 flex items-center gap-2"
-              >
-                <Icon name="external" size={14} />
-                Get testnet BNB
-              </a>
+              {faucet && (
+                <a
+                  href={faucet}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-white/5 flex items-center gap-2"
+                >
+                  <Icon name="external" size={14} />
+                  Get testnet BNB
+                </a>
+              )}
               <button
                 onClick={() => {
                   setOpen(false);

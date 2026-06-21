@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
 import { networkLabel } from '@/lib/links';
-import { switchOrAddChain, TESTNET_FAUCET_URL } from '@/lib/chain';
+import { switchOrAddChain, faucetUrl } from '@/lib/chain';
 import { Icon } from './Icon';
 
 export const NetworkBanner: React.FC = () => {
   const { account, chainId, rawProvider } = useWeb3Store();
   const required = getChainId();
   const [busy, setBusy] = useState(false);
+  const faucet = faucetUrl();
 
   if (!account || chainId == null || chainId === required) return null;
 
@@ -35,15 +36,17 @@ export const NetworkBanner: React.FC = () => {
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <a
-            href={TESTNET_FAUCET_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs px-3 py-1 rounded border border-amber-500/30 hover:bg-amber-500/15 transition inline-flex items-center gap-1"
-          >
-            Faucet
-            <Icon name="external" size={11} />
-          </a>
+          {faucet && (
+            <a
+              href={faucet}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs px-3 py-1 rounded border border-amber-500/30 hover:bg-amber-500/15 transition inline-flex items-center gap-1"
+            >
+              Faucet
+              <Icon name="external" size={11} />
+            </a>
+          )}
           <button
             onClick={handleSwitch}
             disabled={busy}

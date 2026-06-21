@@ -7,6 +7,7 @@ import { getChainId, getContractAddresses, getProvider } from '@/lib/web3';
 import { formatEther } from '@/lib/presale';
 import { compactNumber, formatBnb } from '@/lib/format';
 import { networkLabel } from '@/lib/links';
+import { isTestnet } from '@/lib/chain';
 import { Icon } from '@/components/ui/Icon';
 import { Stat } from '@/components/ui/Stat';
 import { useProtocolFee } from '@/hooks/useProtocolFee';
@@ -63,7 +64,7 @@ const STEPS = [
   },
 ];
 
-const buildFaq = (feeLabel: string) => [
+const buildFaq = (feeLabel: string, testnet: boolean, label: string, chainId: number) => [
   {
     q: 'How does the launchpad work?',
     a: `You deploy an ERC20 token, transfer the tokens to the launchpad presale contract, and configure the sale (price, caps, window). Contributors send BNB during the sale. If softcap is reached, contributors claim tokens after the sale ends and the owner withdraws the raised BNB minus a ${feeLabel} protocol fee. If softcap isn’t reached, contributors can refund their BNB.`,
@@ -74,7 +75,9 @@ const buildFaq = (feeLabel: string) => [
   },
   {
     q: 'Which network is this on?',
-    a: 'The app runs on BNB Chain Testnet (chainId 97). You can grab testnet BNB from the official faucet at testnet.bnbchain.org/faucet-smart. Confirm your wallet is on BSC Testnet before connecting.',
+    a: testnet
+      ? `The app runs on ${label} (chainId ${chainId}). You can grab testnet BNB from the official faucet at testnet.bnbchain.org/faucet-smart. Confirm your wallet is on ${label} before connecting.`
+      : `The app runs on ${label} (chainId ${chainId}). Confirm your wallet is on ${label} before connecting — real BNB is required to transact.`,
   },
   {
     q: 'How do I claim my tokens?',
@@ -90,7 +93,8 @@ export default function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const { label: feeLabel } = useProtocolFee();
-  const faq = buildFaq(feeLabel);
+  const chainId = getChainId();
+  const faq = buildFaq(feeLabel, isTestnet(), networkLabel(chainId), chainId);
 
   useEffect(() => {
     (async () => {
