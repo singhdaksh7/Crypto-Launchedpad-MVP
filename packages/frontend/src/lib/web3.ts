@@ -1,15 +1,28 @@
 import { ethers } from 'ethers';
 
-const DEFAULT_TESTNET_RPC = 'https://bsc-testnet-rpc.publicnode.com';
-const DEFAULT_TESTNET_CHAIN_ID = 97;
-
-export const getProvider = () => {
-  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || DEFAULT_TESTNET_RPC;
-  return new ethers.JsonRpcProvider(rpcUrl);
+// Default to BSC Testnet so local dev / preview deployments still work without
+// any env config. Mainnet is opt-in via NEXT_PUBLIC_NETWORK=56.
+const DEFAULT_CHAIN_ID = 97;
+const DEFAULT_RPC_BY_CHAIN: Record<number, string> = {
+  56: 'https://bsc-dataseed.binance.org',
+  97: 'https://bsc-testnet-rpc.publicnode.com',
 };
 
 export const getChainId = () => {
-  return parseInt(process.env.NEXT_PUBLIC_NETWORK || String(DEFAULT_TESTNET_CHAIN_ID));
+  const raw = (process.env.NEXT_PUBLIC_NETWORK || '').trim();
+  if (!raw) return DEFAULT_CHAIN_ID;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : DEFAULT_CHAIN_ID;
+};
+
+export const getRpcUrl = () => {
+  const configured = (process.env.NEXT_PUBLIC_RPC_URL || '').trim();
+  if (configured) return configured;
+  return DEFAULT_RPC_BY_CHAIN[getChainId()] || DEFAULT_RPC_BY_CHAIN[DEFAULT_CHAIN_ID];
+};
+
+export const getProvider = () => {
+  return new ethers.JsonRpcProvider(getRpcUrl());
 };
 
 export const getContractAddresses = () => {

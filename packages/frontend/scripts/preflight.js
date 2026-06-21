@@ -1,9 +1,10 @@
 // Runs before `next build` (via the `prebuild` npm script).
-// Fails the build if testnet env vars are missing, zero, or malformed —
+// Fails the build if required env vars are missing, zero, or malformed —
 // otherwise the app ships with NEXT_PUBLIC_* inlined as empty/zero and
 // silently calls the zero address.
 //
-// Testnet-only: enforces NEXT_PUBLIC_NETWORK === "97" (BSC Testnet).
+// Supports BSC Testnet (97) and BSC Mainnet (56). Selected via
+// NEXT_PUBLIC_NETWORK; defaults to 97 when unset.
 
 const { loadEnvConfig } = require('@next/env');
 
@@ -16,7 +17,8 @@ const REQUIRED_ADDRESSES = [
   'NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS',
   'NEXT_PUBLIC_VESTING_ADDRESS',
 ];
-const REQUIRED_CHAIN_ID = '97';
+const SUPPORTED_CHAIN_IDS = ['56', '97'];
+const DEFAULT_CHAIN_ID = '97';
 
 const errors = [];
 
@@ -36,19 +38,21 @@ for (const name of REQUIRED_ADDRESSES) {
 }
 
 const network = (process.env.NEXT_PUBLIC_NETWORK || '').trim();
-if (network && network !== REQUIRED_CHAIN_ID) {
+const activeChain = network || DEFAULT_CHAIN_ID;
+if (network && !SUPPORTED_CHAIN_IDS.includes(network)) {
   errors.push(
-    `NEXT_PUBLIC_NETWORK must be "${REQUIRED_CHAIN_ID}" (BSC Testnet) — got "${network}". This project is testnet-only.`,
+    `NEXT_PUBLIC_NETWORK must be "97" (BSC Testnet) or "56" (BSC Mainnet) — got "${network}".`,
   );
 }
 
 if (errors.length > 0) {
   console.error('\nPreflight failed — refusing to build:');
   for (const e of errors) console.error(`  - ${e}`);
-  console.error('\nSet the missing env vars (.env.local) and retry.\n');
+  console.error('\nSet the missing env vars (.env.local or Vercel project settings) and retry.\n');
   process.exit(1);
 }
 
+const networkLabel = activeChain === '56' ? 'BSC Mainnet' : 'BSC Testnet';
 console.log(
-  `Preflight ok — chain ${network || REQUIRED_CHAIN_ID}, ${REQUIRED_ADDRESSES.length} addresses validated.`,
+  `Preflight ok — chain ${activeChain} (${networkLabel}), ${REQUIRED_ADDRESSES.length} addresses validated.`,
 );

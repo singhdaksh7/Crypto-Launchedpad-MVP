@@ -1,21 +1,56 @@
 import { getChainId } from './web3';
 
+type EthereumChainParams = {
+  chainId: string;
+  chainName: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+};
+
 /**
- * Static metadata used to add BSC Testnet to an EIP-1193 wallet via
- * `wallet_addEthereumChain`. Kept testnet-only on purpose.
+ * Per-chain metadata used to add the configured network to an EIP-1193 wallet
+ * via `wallet_addEthereumChain`. Both BSC mainnet (56) and BSC testnet (97) are
+ * supported — the active one is chosen by NEXT_PUBLIC_NETWORK.
  */
-export const BSC_TESTNET_PARAMS = {
-  chainId: '0x61',
-  chainName: 'BNB Smart Chain Testnet',
-  nativeCurrency: { name: 'tBNB', symbol: 'tBNB', decimals: 18 },
-  rpcUrls: [
-    'https://bsc-testnet-rpc.publicnode.com',
-    'https://data-seed-prebsc-1-s1.binance.org:8545',
-  ],
-  blockExplorerUrls: ['https://testnet.bscscan.com'],
+const CHAIN_PARAMS: Record<number, EthereumChainParams> = {
+  56: {
+    chainId: '0x38',
+    chainName: 'BNB Smart Chain',
+    nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+    rpcUrls: [
+      'https://bsc-dataseed.binance.org',
+      'https://bsc-rpc.publicnode.com',
+    ],
+    blockExplorerUrls: ['https://bscscan.com'],
+  },
+  97: {
+    chainId: '0x61',
+    chainName: 'BNB Smart Chain Testnet',
+    nativeCurrency: { name: 'tBNB', symbol: 'tBNB', decimals: 18 },
+    rpcUrls: [
+      'https://bsc-testnet-rpc.publicnode.com',
+      'https://data-seed-prebsc-1-s1.binance.org:8545',
+    ],
+    blockExplorerUrls: ['https://testnet.bscscan.com'],
+  },
 };
 
 export const TESTNET_FAUCET_URL = 'https://testnet.bnbchain.org/faucet-smart';
+
+export function isTestnet(): boolean {
+  return getChainId() === 97;
+}
+
+/** Faucet URL for the active network, or null on mainnet. */
+export function faucetUrl(): string | null {
+  return isTestnet() ? TESTNET_FAUCET_URL : null;
+}
+
+function getAddChainParams(): EthereumChainParams {
+  const id = getChainId();
+  return CHAIN_PARAMS[id] ?? CHAIN_PARAMS[97];
+}
 
 /**
  * Try to switch the wallet to the configured chain. If the wallet rejects with
@@ -42,7 +77,7 @@ export async function switchOrAddChain(provider: any): Promise<boolean> {
       try {
         await provider.request({
           method: 'wallet_addEthereumChain',
-          params: [BSC_TESTNET_PARAMS],
+          params: [getAddChainParams()],
         });
         return true;
       } catch (addErr: any) {

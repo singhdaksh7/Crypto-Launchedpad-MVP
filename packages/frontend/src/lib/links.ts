@@ -5,10 +5,9 @@ const EXPLORERS: Record<number, { name: string; base: string }> = {
   97: { name: 'BscScan Testnet', base: 'https://testnet.bscscan.com' },
 };
 
-const FALLBACK = { name: 'BscScan Testnet', base: 'https://testnet.bscscan.com' };
-
 function explorer() {
-  return EXPLORERS[getChainId()] || FALLBACK;
+  const id = getChainId();
+  return EXPLORERS[id] || EXPLORERS[97];
 }
 
 export function explorerName(): string {

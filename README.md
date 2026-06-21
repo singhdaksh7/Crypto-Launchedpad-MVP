@@ -83,11 +83,17 @@ BSCSCAN_API_KEY=your_api_key
 
 **packages/frontend/.env.local**
 ```
+# 97 = BSC Testnet (default), 56 = BSC Mainnet
 NEXT_PUBLIC_NETWORK=97
-NEXT_PUBLIC_RPC_URL=https://data-seed-prebsc-1-b7c35c69bdb811ec.binance.org:8545
+NEXT_PUBLIC_RPC_URL=https://bsc-testnet-rpc.publicnode.com
 NEXT_PUBLIC_LAUNCHPAD_ADDRESS=0x...
 NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS=0x...
+NEXT_PUBLIC_VESTING_ADDRESS=0x...
 ```
+
+See `packages/frontend/.env.example` for the full list of vars (WalletConnect,
+KYC, Razorpay, JWT) and the "Deploying to Vercel" section below for the
+mainnet-vs-testnet split.
 
 ## Development
 
@@ -99,6 +105,11 @@ npm run contracts:compile
 ### Deploy to BSC Testnet
 ```bash
 npm run contracts:deploy
+```
+
+### Deploy to BSC Mainnet
+```bash
+npm run contracts:deploy:mainnet
 ```
 
 ### Run Frontend Development Server
@@ -187,6 +198,89 @@ npm run test
 - [ ] Advanced analytics
 - [ ] Governance token
 - [ ] Community voting on presales
+
+## Deploying to Vercel
+
+The frontend supports both BSC Testnet (97) and BSC Mainnet (56). The selected
+network is driven entirely by env vars — code is identical between deployments.
+
+### Recommended layout: two separate Vercel projects
+
+Keep the existing project as **testnet** (preview/dev), and create a new
+project for **mainnet** production.
+
+**Build settings (identical for both projects, root-level `vercel.json`):**
+- Build Command: `cd packages/frontend && npm run build`
+- Install Command: `npm install --legacy-peer-deps`
+- Output Directory: `packages/frontend/.next`
+- Root Directory: leave blank (repository root — Vercel must see `packages/`)
+- Framework Preset: Next.js
+- Node.js Version: 20.x or newer
+
+The `prebuild` step runs `scripts/preflight.js`, which fails the build if any
+contract address is missing/zero or `NEXT_PUBLIC_NETWORK` is not `56` or `97`.
+
+### Env vars — testnet project (current setup)
+
+Apply to **Production, Preview, Development**.
+
+| Key | Value |
+| --- | --- |
+| `NEXT_PUBLIC_NETWORK` | `97` |
+| `NEXT_PUBLIC_RPC_URL` | `https://bsc-testnet-rpc.publicnode.com` (or paid testnet RPC) |
+| `NEXT_PUBLIC_LAUNCHPAD_ADDRESS` | from `packages/contracts/deployments/bscTestnet.json` |
+| `NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS` | from `bscTestnet.json` |
+| `NEXT_PUBLIC_VESTING_ADDRESS` | from `bscTestnet.json` |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect Cloud project id |
+| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Razorpay test key (`rzp_test_...`) |
+| `RAZORPAY_KEY_ID` | same `rzp_test_...` |
+| `RAZORPAY_KEY_SECRET` | Razorpay test secret |
+| `JWT_SECRET` | 32+ byte random string |
+| `EXEMPT_ADDRESSES` | comma-separated, lowercase |
+| `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase |
+| `PAYMENT_AMOUNT_INR` | `1000` |
+
+### Env vars — mainnet project (new production project)
+
+Create a new Vercel project pointing at the same git repository. Set scope to
+**Production, Preview, Development** unless you specifically want previews to
+talk to testnet (in which case set the `NEXT_PUBLIC_*` chain/address values
+only at the Production scope and leave the others empty — but the simpler,
+recommended approach is to keep this project mainnet-only and use the existing
+project for testnet previews).
+
+| Key | Value |
+| --- | --- |
+| `NEXT_PUBLIC_NETWORK` | `56` |
+| `NEXT_PUBLIC_RPC_URL` | a reliable BSC mainnet RPC (Alchemy / QuickNode / Ankr; free public endpoints are rate-limited and not recommended for production) |
+| `NEXT_PUBLIC_LAUNCHPAD_ADDRESS` | from `packages/contracts/deployments/bscMainnet.json` after running `npm run contracts:deploy:mainnet` |
+| `NEXT_PUBLIC_TOKEN_FACTORY_ADDRESS` | from `bscMainnet.json` |
+| `NEXT_PUBLIC_VESTING_ADDRESS` | from `bscMainnet.json` |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | a separate WalletConnect Cloud project id with the production domain in its allowed origins |
+| `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Razorpay **live** key (`rzp_live_...`) |
+| `RAZORPAY_KEY_ID` | same `rzp_live_...` |
+| `RAZORPAY_KEY_SECRET` | Razorpay **live** secret |
+| `JWT_SECRET` | a fresh 32+ byte random string (do **not** reuse the testnet secret) |
+| `EXEMPT_ADDRESSES` | comma-separated, lowercase mainnet addresses |
+| `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase mainnet addresses |
+| `PAYMENT_AMOUNT_INR` | `1000` |
+
+### Mainnet pre-deploy checklist
+
+Before connecting the new Vercel project:
+
+1. Add a `PRIVATE_KEY` (mainnet deployer) and `BSCSCAN_API_KEY` to
+   `packages/contracts/.env`.
+2. Optionally set `BSC_MAINNET_RPC_URL` to your paid mainnet RPC.
+3. Run `npx hardhat run scripts/deploy.js --network bscMainnet` from
+   `packages/contracts/` (or `npm run contracts:deploy:mainnet`). This writes
+   `packages/contracts/deployments/bscMainnet.json`.
+4. Verify each contract: `npx hardhat verify --network bscMainnet <address>`.
+5. Copy the three deployed addresses into the Vercel project env vars above.
+6. Trigger a Production deployment.
+
+The preflight step will fail the build if `NEXT_PUBLIC_NETWORK=56` is set but
+any of the three address vars is missing.
 
 ## License
 
