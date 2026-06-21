@@ -1,30 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ethers } from 'ethers';
+import { useQuery } from 'react-query';
 import { useWeb3Store } from '@/store';
 import { Layout } from '@/components/Layout';
-import { LAUNCHPAD_ABI } from '@/lib/abis/Launchpad';
-import { ERC20_ABI } from '@/lib/abis/ERC20';
-import { getContractAddresses, getProvider, formatAddress } from '@/lib/web3';
-import {
-  PresaleConfig,
-  PresaleStatus,
-  formatEther,
-  getPresaleStatus,
-  progressPct,
-} from '@/lib/presale';
+import { formatAddress } from '@/lib/web3';
+import { formatEther, getPresaleStatus, progressPct } from '@/lib/presale';
+import { PresaleData, fetchPresalesFromApi } from '@/lib/api';
 import { friendlyError, formatBnb } from '@/lib/format';
 import { Icon } from '@/components/ui/Icon';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Countdown } from '@/components/ui/Countdown';
 import { Alert } from '@/components/ui/Alert';
-
-interface PresaleData extends PresaleConfig {
-  id: number;
-  tokenName: string;
-  tokenSymbol: string;
-}
 
 type StatusFilter = 'all' | 'upcoming' | 'active' | 'ended';
 type SortBy = 'newest' | 'raised' | 'ending';
@@ -118,72 +105,22 @@ function CardSkeleton() {
 
 export default function Launchpads() {
   const { account } = useWeb3Store();
-  const [presales, setPresales] = useState<PresaleData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('newest');
 
-  const fetchPresales = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // Reads now go through the cached `/api/presales` route instead of the
+  // browser doing the 1+3N RPC fan-out. react-query handles loading/error,
+  // dedupes concurrent mounts, and serves cached data instantly.
+  const {
+    data: presales = [],
+    isLoading: loading,
+    isFetching,
+    error: queryError,
+    refetch,
+  } = useQuery<PresaleData[]>('presales', fetchPresalesFromApi);
 
-      const provider = getProvider();
-      const { launchpad } = getContractAddresses();
-      const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, provider);
-      const counter: bigint = await contract.presaleCounter();
-      const total = Number(counter);
-
-      if (total === 0) {
-        setPresales([]);
-        return;
-      }
-
-      const ids = Array.from({ length: total }, (_, i) => i);
-      const details = await Promise.all(ids.map((id) => contract.getPresaleDetails(id)));
-
-      const enriched = await Promise.all(
-        details.map(async (d, id) => {
-          let tokenName = '';
-          let tokenSymbol = '';
-          try {
-            const token = new ethers.Contract(d.tokenAddress, ERC20_ABI, provider);
-            [tokenName, tokenSymbol] = await Promise.all([token.name(), token.symbol()]);
-          } catch {
-            /* token may not be ERC20 metadata-compliant */
-          }
-          return {
-            id,
-            tokenAddress: d.tokenAddress,
-            owner: d.owner,
-            tokenPrice: d.tokenPrice,
-            softcap: d.softcap,
-            hardcap: d.hardcap,
-            startTime: d.startTime,
-            endTime: d.endTime,
-            maxBuyPerUser: d.maxBuyPerUser,
-            totalRaised: d.totalRaised,
-            isActive: d.isActive,
-            isFinalized: d.isFinalized,
-            tokenName,
-            tokenSymbol,
-          } as PresaleData;
-        }),
-      );
-
-      setPresales(enriched);
-    } catch (err: any) {
-      setError(friendlyError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPresales();
-  }, [fetchPresales]);
+  const error = queryError ? friendlyError(queryError) : null;
 
   const counts = useMemo(() => {
     const c: Record<StatusFilter, number> = { all: presales.length, upcoming: 0, active: 0, ended: 0 };
@@ -246,13 +183,13 @@ export default function Launchpads() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={fetchPresales}
-            disabled={loading}
+            onClick={() => refetch()}
+            disabled={isFetching}
             className="btn-secondary"
             aria-label="Refresh"
           >
-            <Icon name={loading ? 'spinner' : 'refresh'} size={14} />
-            <span className="hidden sm:inline">{loading ? 'Loading' : 'Refresh'}</span>
+            <Icon name={isFetching ? 'spinner' : 'refresh'} size={14} />
+            <span className="hidden sm:inline">{isFetching ? 'Loading' : 'Refresh'}</span>
           </button>
           {account && (
             <Link href="/dashboard" className="btn-primary">
