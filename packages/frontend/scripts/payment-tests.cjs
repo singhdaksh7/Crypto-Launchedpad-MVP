@@ -35,11 +35,15 @@ const {
   resetPaymentStorageForTests,
 } = require('../src/lib/server/payments/storage.ts');
 const {
+  getConfiguredPaymentProviderName,
+} = require('../src/lib/server/payments/provider.ts');
+const {
   getDatabaseHostType,
   getPaymentStorageDiagnosticCode,
   getPaymentStorageSafeError,
   isPaymentStorageDebugEnabled,
 } = require('../src/lib/server/payments/diagnostics.ts');
+const authNonceHandler = require('../src/pages/api/auth/nonce.ts').default;
 const debugPaymentStorageHandler = require('../src/pages/api/debug/payment-storage.ts').default;
 const paymentCreateOrderHandler = require('../src/pages/api/payment/create-order.ts').default;
 const paymentVerifyHandler = require('../src/pages/api/payment/verify.ts').default;
@@ -371,6 +375,43 @@ test('diagnostic error codes stay safe and stable', () => {
   );
 });
 
+test('payment provider defaults to mock outside production', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousProvider = process.env.PAYMENT_PROVIDER;
+  process.env.NODE_ENV = 'test';
+  delete process.env.PAYMENT_PROVIDER;
+
+  assert.equal(getConfiguredPaymentProviderName(), 'mock');
+
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+  if (previousProvider === undefined) delete process.env.PAYMENT_PROVIDER;
+  else process.env.PAYMENT_PROVIDER = previousProvider;
+});
+
+test('payment provider must be explicit in production', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousProvider = process.env.PAYMENT_PROVIDER;
+  process.env.NODE_ENV = 'production';
+  delete process.env.PAYMENT_PROVIDER;
+
+  assert.throws(
+    () => getConfiguredPaymentProviderName(),
+    /PAYMENT_PROVIDER must be explicitly set/,
+  );
+
+  process.env.PAYMENT_PROVIDER = 'invalid';
+  assert.throws(
+    () => getConfiguredPaymentProviderName(),
+    /Unsupported PAYMENT_PROVIDER/,
+  );
+
+  if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = previousNodeEnv;
+  if (previousProvider === undefined) delete process.env.PAYMENT_PROVIDER;
+  else process.env.PAYMENT_PROVIDER = previousProvider;
+});
+
 test('diagnostics endpoint is disabled by default', async () => {
   const previous = process.env.DEBUG_PAYMENT_STORAGE;
   delete process.env.DEBUG_PAYMENT_STORAGE;
@@ -428,6 +469,15 @@ test('payment verify returns JSON error payloads', async () => {
 
   assert.equal(res.statusCode, 401);
   assert.deepEqual(res.body, { error: 'Verify your wallet first.' });
+});
+
+test('auth nonce returns JSON error payloads', async () => {
+  const req = { method: 'POST', body: { address: 'bad-address' } };
+  const res = createMockRes();
+  await authNonceHandler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { error: 'Invalid address' });
 });
 
 test('requireCreatorAccess rejects unpaid wallet', async () => {

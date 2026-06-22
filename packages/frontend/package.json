@@ -8,6 +8,7 @@
    "prebuild": "prisma generate && node scripts/preflight.js",
     "build": "next build",
     "start": "next start",
+    "smoke": "node scripts/smoke-routes.cjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node scripts/payment-tests.cjs",

@@ -229,6 +229,11 @@ disabled by default and turn it off again immediately after debugging.
 The frontend supports both BSC Testnet (97) and BSC Mainnet (56). The selected
 network is driven entirely by env vars — code is identical between deployments.
 
+Stage 5.3 QA assets live under `packages/frontend/`:
+
+- `docs/staging-e2e-checklist.md` for manual BSC Testnet E2E verification
+- `scripts/smoke-routes.cjs` for lightweight local route/API smoke checks
+
 ### Recommended layout: two separate Vercel projects
 
 Keep the existing project as **testnet** (preview/dev), and create a new
@@ -244,6 +249,18 @@ project for **mainnet** production.
 
 The `prebuild` step runs `scripts/preflight.js`, which fails the build if any
 contract address is missing/zero or `NEXT_PUBLIC_NETWORK` is not `56` or `97`.
+
+### Vercel deployment checklist
+
+- Set the root project to the repository root so Vercel can see `packages/`
+- Use the frontend build command from the repo root flow already configured for the project
+- Confirm `PAYMENT_STORAGE=database`
+- Confirm `PAYMENT_PROVIDER=mock` for current staging/demo usage
+- Confirm `DATABASE_URL` uses the Supabase pooler connection string
+- Confirm `DEBUG_PAYMENT_STORAGE=false`
+- Keep SMEPay variables empty until official docs and real integration work are ready
+- Remove any old Razorpay environment variables from Vercel project settings
+- After changing env vars, redeploy and disable build cache for that deployment if Vercel still shows stale behavior
 
 ### Env vars — testnet project (current setup)
 

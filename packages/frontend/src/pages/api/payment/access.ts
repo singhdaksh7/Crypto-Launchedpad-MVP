@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { isExempt } from '@/lib/server/access';
 import { getLaunchAccess } from '@/lib/server/payments/service';
+import { toJsonError } from '@/lib/server/logging';
 import type { PaymentAccessResponse } from '@/lib/access';
 
 export default async function handler(
@@ -9,12 +10,12 @@ export default async function handler(
 ) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json(toJsonError('Method not allowed'));
   }
 
   const walletAddress = String(req.query.walletAddress || '').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(walletAddress)) {
-    return res.status(400).json({ error: 'Invalid wallet address.' });
+    return res.status(400).json(toJsonError('Invalid wallet address.'));
   }
 
   const access = await getLaunchAccess(walletAddress);

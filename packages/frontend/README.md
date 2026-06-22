@@ -32,9 +32,26 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
+npm run smoke
 npm run prisma:generate
 npx prisma migrate deploy
 ```
+
+## Local route smoke test
+
+Run the app locally, then execute:
+
+```bash
+SMOKE_BASE_URL=http://127.0.0.1:3000 npm run smoke
+```
+
+The smoke script checks the main pages plus `/api/debug/payment-storage`. It expects the debug route to return `404` unless `DEBUG_PAYMENT_STORAGE=true`.
+
+## Staging QA checklist
+
+Full BSC Testnet staging flow:
+
+- [docs/staging-e2e-checklist.md](./docs/staging-e2e-checklist.md)
 
 ## Debug endpoint
 
