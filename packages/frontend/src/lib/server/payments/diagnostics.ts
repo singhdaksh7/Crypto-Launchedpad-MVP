@@ -98,9 +98,10 @@ async function detectTable(
   tableName: 'PaymentOrder' | 'WalletAccess' | 'ConsumedPayment',
 ): Promise<TableDiagnosticStatus> {
   try {
-    const result = await prisma.$queryRawUnsafe<Array<{ present: boolean }>>(
+    const result = (await prisma.$queryRawUnsafe(
       `SELECT to_regclass('"public"."${tableName}"') IS NOT NULL AS "present"`,
-    );
+    )) as Array<{ present: boolean }>;
+
     return result?.[0]?.present ? 'ok' : 'missing';
   } catch {
     return 'failed';
@@ -192,3 +193,4 @@ export async function collectPaymentStorageDiagnostics(): Promise<PaymentStorage
   diagnostics.safeError = getPaymentStorageSafeError('PRISMA_QUERY_ERROR');
   return diagnostics;
 }
+
