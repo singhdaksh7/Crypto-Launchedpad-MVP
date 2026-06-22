@@ -19,40 +19,48 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const body = req.body as VerifyRequest;
-  const address = String(body?.address || '').toLowerCase();
-  const signature = String(body?.signature || '');
-
-  if (!/^0x[0-9a-f]{40}$/.test(address)) {
-    return res.status(400).json({ error: 'Invalid address' });
-  }
-  if (!signature.startsWith('0x')) {
-    return res.status(400).json({ error: 'Invalid signature' });
-  }
-
-  const noncePayload = readNonce(req);
-  if (!noncePayload) {
-    return res.status(400).json({ error: 'Nonce missing or expired. Try again.' });
-  }
-
-  const message = siweMessage(address, noncePayload.nonce);
-  let recovered: string;
   try {
-    recovered = ethers.verifyMessage(message, signature).toLowerCase();
-  } catch {
-    return res.status(400).json({ error: 'Could not verify signature' });
-  }
-  if (recovered !== address) {
-    return res.status(401).json({ error: 'Signature does not match address' });
-  }
+    const body = req.body as VerifyRequest;
+    const address = String(body?.address || '').toLowerCase();
+    const signature = String(body?.signature || '');
 
-  // Single-use nonce — burn it after successful verify.
-  clearNonce(res);
+    if (!/^0x[0-9a-f]{40}$/.test(address)) {
+      return res.status(400).json({ error: 'Invalid address format.' });
+    }
+    if (!signature.startsWith('0x')) {
+      return res.status(400).json({ error: 'Invalid signature format.' });
+    }
 
-  const exempt = isExempt(address);
-  const kyc = isKycVerified(address);
-  const launchAccess = await getLaunchAccess(address);
-  try {
+    const noncePayload = readNonce(req);
+    if (!noncePayload) {
+      return res.status(400).json({ error: 'Nonce missing or expired. Please click Verify again.' });
+    }
+
+    const message = siweMessage(address, noncePayload.nonce);
+    let recovered: string;
+    try {
+      recovered = ethers.verifyMessage(message, signature).toLowerCase();
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[Verify API] verifyMessage failed:', err);
+      }
+      return res.status(400).json({ error: 'Could not verify signature format.' });
+    }
+
+    if (recovered !== address) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`[Verify API] Address mismatch: recovered=${recovered} expected=${address}`);
+      }
+      return res.status(401).json({ error: 'Wallet address mismatch. The signed address does not match the active wallet.' });
+    }
+
+    // Single-use nonce — burn it after successful verify.
+    clearNonce(res);
+
+    const exempt = isExempt(address);
+    const kyc = isKycVerified(address);
+    const launchAccess = await getLaunchAccess(address);
+
     const session = issueSession(res, {
       address,
       exempt,
@@ -76,6 +84,9 @@ export default async function handler(
       paidAt: launchAccess.paidAt,
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to issue session' });
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[Verify API] Uncaught handler exception:', err);
+    }
+    return res.status(500).json({ error: err?.message || 'Verification failed' });
   }
 }

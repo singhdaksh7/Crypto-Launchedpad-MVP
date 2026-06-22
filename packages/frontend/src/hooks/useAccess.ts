@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ethers } from 'ethers';
 import type { AccessResponse } from '@/lib/access';
 import { useWeb3Store } from '@/store';
 
@@ -30,7 +31,7 @@ const INITIAL: UseAccessState = {
 };
 
 export function useAccess() {
-  const { account, signer } = useWeb3Store();
+  const { account, signer, rawProvider } = useWeb3Store();
   const [state, setState] = useState<UseAccessState>(INITIAL);
   const [verifying, setVerifying] = useState(false);
 
@@ -94,7 +95,18 @@ export function useAccess() {
       const { message } = (await nonceRes.json()) as { message: string };
 
       // 2. Wallet signs the message — proves ownership of the address.
-      const signature = await signer.signMessage(message);
+      let signature: string;
+      if (rawProvider && typeof rawProvider.request === 'function') {
+        const hexMessage = ethers.hexlify(ethers.toUtf8Bytes(message));
+        signature = await rawProvider.request({
+          method: 'personal_sign',
+          params: [hexMessage, account.toLowerCase()],
+        });
+      } else if (signer) {
+        signature = await signer.signMessage(message);
+      } else {
+        throw new Error('No wallet provider available.');
+      }
 
       // 3. Server verifies and issues the session cookie.
       const verifyRes = await fetch('/api/auth/verify', {
@@ -116,7 +128,7 @@ export function useAccess() {
     } finally {
       setVerifying(false);
     }
-  }, [signer, account, refresh]);
+  }, [signer, account, rawProvider, refresh]);
 
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
