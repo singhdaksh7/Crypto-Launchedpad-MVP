@@ -117,7 +117,7 @@ export function useAccess() {
       });
       if (!verifyRes.ok) {
         const j = await verifyRes.json().catch(() => ({}));
-        throw new Error(j.error || 'Verification failed');
+        throw new Error(j.error || 'Server verification failed. Please try again or contact support.');
       }
       await refresh();
     } catch (err: any) {

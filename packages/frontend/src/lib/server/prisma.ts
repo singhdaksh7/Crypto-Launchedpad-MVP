@@ -4,12 +4,11 @@ const globalForPrisma = globalThis as typeof globalThis & {
   __launchpadPrisma?: PrismaClient;
 };
 
-export const prisma =
-  globalForPrisma.__launchpadPrisma ||
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
-  });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.__launchpadPrisma = prisma;
+export function getPrisma(): PrismaClient {
+  if (!globalForPrisma.__launchpadPrisma) {
+    globalForPrisma.__launchpadPrisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    });
+  }
+  return globalForPrisma.__launchpadPrisma;
 }

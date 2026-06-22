@@ -1,5 +1,5 @@
 import type { LaunchAccessRecord, PaymentOrderRecord } from './types';
-import { prisma } from '../prisma';
+import { getPrisma } from '../prisma';
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -132,6 +132,7 @@ export function createMemoryPaymentStorage(): PaymentStorage {
 }
 
 export function createDatabasePaymentStorage(): PaymentStorage {
+  const db = getPrisma();
   function requireDatabaseUrl() {
     if (!process.env.DATABASE_URL) {
       throw new Error('DATABASE_URL is required when PAYMENT_STORAGE=database.');
@@ -216,7 +217,7 @@ export function createDatabasePaymentStorage(): PaymentStorage {
   return {
     async createPaymentOrder(order) {
       requireDatabaseUrl();
-      await prisma.paymentOrder.upsert({
+      await db.paymentOrder.upsert({
         where: { providerOrderId: order.providerOrderId },
         create: {
           paymentProvider: order.paymentProvider,
@@ -236,7 +237,7 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     },
     async getPaymentOrderByProviderOrderId(providerOrderId) {
       requireDatabaseUrl();
-      const order = await prisma.paymentOrder.findUnique({
+      const order = await db.paymentOrder.findUnique({
         where: { providerOrderId },
         include: includeConsumed,
       });
@@ -244,7 +245,7 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     },
     async updatePaymentOrderStatus(providerOrderId, patch) {
       requireDatabaseUrl();
-      const order = await prisma.paymentOrder.update({
+      const order = await db.paymentOrder.update({
         where: { providerOrderId },
         data: {
           providerPaymentId: patch.providerPaymentId,
@@ -262,13 +263,13 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     },
     async markPaymentConsumed(providerOrderId, input) {
       requireDatabaseUrl();
-      const order = await prisma.paymentOrder.findUnique({
+      const order = await db.paymentOrder.findUnique({
         where: { providerOrderId },
       });
       if (!order) throw new Error('Payment order not found.');
 
       const consumedPayments = consumeKeys(input.providerPaymentId, input.providerTransactionId).map((key) =>
-        prisma.consumedPayment.upsert({
+        db.consumedPayment.upsert({
           where: { consumeKey: key },
           create: {
             paymentProvider: order.paymentProvider,
@@ -282,9 +283,9 @@ export function createDatabasePaymentStorage(): PaymentStorage {
           update: {},
         }),
       );
-      await prisma.$transaction(consumedPayments);
+      await db.$transaction(consumedPayments);
 
-      const updated = await prisma.paymentOrder.update({
+      const updated = await db.paymentOrder.update({
         where: { providerOrderId },
         data: {
           providerPaymentId: input.providerPaymentId,
@@ -298,7 +299,7 @@ export function createDatabasePaymentStorage(): PaymentStorage {
       requireDatabaseUrl();
       if (!providerPaymentId && !providerTransactionId) return false;
       const keys = consumeKeys(providerPaymentId, providerTransactionId);
-      const count = await prisma.consumedPayment.count({
+      const count = await db.consumedPayment.count({
         where: { consumeKey: { in: keys } },
       });
       return count > 0;
@@ -306,7 +307,7 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     async approveWalletAccess(walletAddress, paymentProvider, paidAt, providerOrderId) {
       requireDatabaseUrl();
       const wallet = normalize(walletAddress);
-      await prisma.walletAccess.upsert({
+      await db.walletAccess.upsert({
         where: { walletAddress: wallet },
         create: {
           walletAddress: wallet,
@@ -326,14 +327,14 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     async getWalletAccess(walletAddress) {
       requireDatabaseUrl();
       const wallet = normalize(walletAddress);
-      const access = await prisma.walletAccess.findUnique({
+      const access = await db.walletAccess.findUnique({
         where: { walletAddress: wallet },
       });
       return mapAccess(access, wallet);
     },
     async listPaymentOrders() {
       requireDatabaseUrl();
-      const orders = await prisma.paymentOrder.findMany({
+      const orders = await db.paymentOrder.findMany({
         orderBy: { createdAt: 'desc' },
         take: 100,
         include: includeConsumed,
@@ -342,7 +343,7 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     },
     async listWalletAccessApprovals() {
       requireDatabaseUrl();
-      const approvals = await prisma.walletAccess.findMany({
+      const approvals = await db.walletAccess.findMany({
         orderBy: { updatedAt: 'desc' },
         take: 100,
       });
@@ -355,10 +356,10 @@ export function createDatabasePaymentStorage(): PaymentStorage {
     },
     async reset() {
       requireDatabaseUrl();
-      await prisma.$transaction([
-        prisma.consumedPayment.deleteMany(),
-        prisma.walletAccess.deleteMany(),
-        prisma.paymentOrder.deleteMany(),
+      await db.$transaction([
+        db.consumedPayment.deleteMany(),
+        db.walletAccess.deleteMany(),
+        db.paymentOrder.deleteMany(),
       ]);
     },
   };
