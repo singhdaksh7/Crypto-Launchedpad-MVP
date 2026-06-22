@@ -2,106 +2,16 @@ import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from 'react-query';
 import { useWeb3Store } from '@/store';
-import { Layout } from '@/components/Layout';
-import { formatAddress } from '@/lib/web3';
-import { formatEther, getPresaleStatus, progressPct } from '@/lib/presale';
+import { AppLayout } from '@/components/layout/AppLayout';
+import { getPresaleStatus } from '@/lib/presale';
 import { PresaleData, fetchPresalesFromApi } from '@/lib/api';
-import { friendlyError, formatBnb } from '@/lib/format';
+import { friendlyError } from '@/lib/format';
 import { Icon } from '@/components/ui/Icon';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { ProgressBar } from '@/components/ui/ProgressBar';
-import { Countdown } from '@/components/ui/Countdown';
-import { Alert } from '@/components/ui/Alert';
+import { AlertBanner, EmptyState, Button } from '@/components/ui';
+import { PresaleCard } from '@/components/presale/PresaleCard';
 
 type StatusFilter = 'all' | 'upcoming' | 'active' | 'ended';
 type SortBy = 'newest' | 'raised' | 'ending';
-
-function PresaleCard({ presale, account }: { presale: PresaleData; account: string | null }) {
-  const status = getPresaleStatus(presale);
-  const raisedBnb = parseFloat(formatEther(presale.totalRaised));
-  const hardcapBnb = parseFloat(formatEther(presale.hardcap));
-  const softcapBnb = parseFloat(formatEther(presale.softcap));
-  const pct = progressPct(presale.totalRaised, presale.hardcap);
-  const isOwner = !!account && account.toLowerCase() === presale.owner.toLowerCase();
-
-  return (
-    <Link
-      href={`/presale/${presale.id}`}
-      className="card card-hover flex flex-col gap-4 group"
-    >
-      <div className="flex justify-between items-start gap-3">
-        <div className="min-w-0">
-          <h3 className="font-semibold text-lg truncate">
-            {presale.tokenName || 'Unknown Token'}
-            {presale.tokenSymbol && (
-              <span className="text-gray-500 text-sm ml-1.5 font-normal">
-                {presale.tokenSymbol}
-              </span>
-            )}
-          </h3>
-          <p className="text-xs text-gray-500 font-mono mt-1 truncate">
-            {formatAddress(presale.tokenAddress)}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {isOwner && (
-            <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
-              Yours
-            </span>
-          )}
-          <StatusBadge status={status} />
-        </div>
-      </div>
-
-      <div>
-        <div className="flex justify-between text-xs mb-1.5">
-          <span className="text-gray-400">{pct.toFixed(1)}% raised</span>
-          <span className="text-gray-300 font-medium tabular-nums">
-            {formatBnb(raisedBnb)} / {formatBnb(hardcapBnb)} BNB
-          </span>
-        </div>
-        <ProgressBar raised={presale.totalRaised} hardcap={presale.hardcap} />
-        <div className="flex justify-between text-[11px] text-gray-500 mt-1.5">
-          <span>Softcap {formatBnb(softcapBnb)} BNB</span>
-          {status === 'active' && (
-            <span className="text-amber-300 font-medium inline-flex items-center gap-1">
-              <Icon name="clock" size={11} />
-              <Countdown target={presale.endTime} />
-            </span>
-          )}
-          {status === 'upcoming' && (
-            <span className="text-sky-300 font-medium inline-flex items-center gap-1">
-              <Icon name="clock" size={11} />
-              starts in <Countdown target={presale.startTime} />
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between text-sm text-gray-300 pt-1">
-        <span className="text-gray-500 text-xs">Presale #{presale.id}</span>
-        <span className="inline-flex items-center gap-1 text-primary-400 group-hover:translate-x-0.5 transition-transform">
-          View details
-          <Icon name="arrow-right" size={14} />
-        </span>
-      </div>
-    </Link>
-  );
-}
-
-function CardSkeleton() {
-  return (
-    <div className="card animate-pulse space-y-4">
-      <div className="flex justify-between">
-        <div className="h-5 bg-white/5 rounded w-2/3" />
-        <div className="h-5 bg-white/5 rounded w-16" />
-      </div>
-      <div className="h-2 bg-white/5 rounded" />
-      <div className="h-3 bg-white/5 rounded w-1/2" />
-      <div className="h-9 bg-white/5 rounded" />
-    </div>
-  );
-}
 
 export default function Launchpads() {
   const { account } = useWeb3Store();
@@ -109,9 +19,7 @@ export default function Launchpads() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortBy, setSortBy] = useState<SortBy>('newest');
 
-  // Reads now go through the cached `/api/presales` route instead of the
-  // browser doing the 1+3N RPC fan-out. react-query handles loading/error,
-  // dedupes concurrent mounts, and serves cached data instantly.
+  // Preserve cached API reads
   const {
     data: presales = [],
     isLoading: loading,
@@ -141,6 +49,7 @@ export default function Launchpads() {
         p.tokenName.toLowerCase().includes(q) ||
         p.tokenSymbol.toLowerCase().includes(q) ||
         p.tokenAddress.toLowerCase().includes(q);
+      
       const status = getPresaleStatus(p);
       const matchesStatus =
         statusFilter === 'all' ||
@@ -149,6 +58,7 @@ export default function Launchpads() {
         (statusFilter === 'ended' && (status === 'ended' || status === 'finalized'));
       return matchesSearch && matchesStatus;
     });
+
     list = [...list].sort((a, b) => {
       if (sortBy === 'raised') {
         return a.totalRaised < b.totalRaised ? 1 : a.totalRaised > b.totalRaised ? -1 : 0;
@@ -166,124 +76,135 @@ export default function Launchpads() {
   }, [presales, search, statusFilter, sortBy]);
 
   const filters: { key: StatusFilter; label: string }[] = [
-    { key: 'all', label: 'All' },
+    { key: 'all', label: 'All Launches' },
     { key: 'active', label: 'Live' },
     { key: 'upcoming', label: 'Upcoming' },
     { key: 'ended', label: 'Ended' },
   ];
 
   return (
-    <Layout>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">Launchpads</h1>
-          <p className="text-gray-400 mt-1 text-sm">
-            {presales.length} presale{presales.length === 1 ? '' : 's'} on this network
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="btn-secondary"
-            aria-label="Refresh"
-          >
-            <Icon name={isFetching ? 'spinner' : 'refresh'} size={14} />
-            <span className="hidden sm:inline">{isFetching ? 'Loading' : 'Refresh'}</span>
-          </button>
-          {account && (
-            <Link href="/dashboard" className="btn-primary">
-              <Icon name="plus" size={14} />
-              Create Presale
-            </Link>
-          )}
-        </div>
-      </div>
-
-      {error && <Alert tone="error" className="mb-6">{error}</Alert>}
-
-      {/* Search + filter + sort */}
-      <div className="flex flex-col gap-3 mb-6 lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <Icon
-            name="search"
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
-          />
-          <input
-            type="text"
-            placeholder="Search by name, symbol or address"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-field pl-9"
-          />
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {filters.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${
-                statusFilter === f.key
-                  ? 'bg-white/10 text-white border border-white/15'
-                  : 'bg-white/0 border border-white/5 text-gray-400 hover:bg-white/5 hover:text-white'
-              }`}
-            >
-              {f.label}
-              <span className="ml-1 text-xs opacity-60">{counts[f.key]}</span>
-            </button>
-          ))}
-        </div>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortBy)}
-          className="input-field lg:w-44"
-        >
-          <option value="newest">Newest first</option>
-          <option value="raised">Most raised</option>
-          <option value="ending">Ending soonest</option>
-        </select>
-      </div>
-
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[0, 1, 2, 3, 4, 5].map((i) => <CardSkeleton key={i} />)}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="card text-center py-16">
-          <div className="mx-auto h-12 w-12 rounded-full bg-white/5 flex items-center justify-center mb-4 text-gray-400">
-            <Icon name="rocket" size={20} />
+    <AppLayout>
+      <div className="space-y-8 select-none">
+        {/* Listing Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-white">Explore Presales</h1>
+            <p className="text-ink-400 text-sm mt-1 font-semibold">
+              Find and participate in BEP-20 launches on BNB Smart Chain.
+            </p>
           </div>
-          <p className="text-lg font-medium mb-1">
-            {presales.length === 0 ? 'No presales yet' : 'No presales match your filters'}
-          </p>
-          <p className="text-sm text-gray-400 mb-6 max-w-sm mx-auto">
-            {presales.length === 0
-              ? 'Be the first to launch on this network. Create a token and configure a presale in minutes.'
-              : 'Try clearing the search or switching the status filter.'}
-          </p>
-          {presales.length === 0 ? (
-            <Link href="/create-token" className="btn-primary">
-              Create your token
-              <Icon name="arrow-right" size={14} />
-            </Link>
-          ) : (
-            <button
-              onClick={() => {
-                setSearch('');
-                setStatusFilter('all');
-              }}
-              className="btn-secondary"
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              variant="secondary"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              size="sm"
+              className="flex-1 sm:flex-none"
             >
-              Clear filters
-            </button>
-          )}
+              <Icon name={isFetching ? 'spinner' : 'refresh' as any} size={12} className={isFetching ? 'animate-spin' : ''} />
+              Refresh
+            </Button>
+            <Link href="/launchpads/create" className="btn-primary px-5 py-2.5 text-xs font-bold flex-1 sm:flex-none text-center">
+              Launch Your Own
+            </Link>
+          </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((p) => <PresaleCard key={p.id} presale={p} account={account} />)}
+
+        {error && <AlertBanner variant="error">{error}</AlertBanner>}
+
+        {/* Filters and Search Bar */}
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Icon
+              name="search"
+              size={14}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-500"
+            />
+            <input
+              type="text"
+              placeholder="Search by token name, ticker, or contract address..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="input-field pl-10.5 text-sm"
+            />
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none font-semibold">
+            {filters.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setStatusFilter(f.key)}
+                className={`px-4 py-2 rounded-full text-xs transition whitespace-nowrap border ${
+                  statusFilter === f.key
+                    ? 'bg-primary-500/10 text-primary-500 border-primary-500/25'
+                    : 'bg-white/5 text-ink-400 border-white/5 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {f.label}
+                <span className="ml-1.5 opacity-60 text-[10px] font-mono">{counts[f.key]}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Sort Dropdown */}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortBy)}
+            className="input-field text-xs md:w-40 font-semibold cursor-pointer"
+          >
+            <option value="newest">Newest first</option>
+            <option value="raised">Most raised</option>
+            <option value="ending">Ending soonest</option>
+          </select>
         </div>
-      )}
-    </Layout>
+
+        {/* Listing Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="card animate-pulse h-[340px] space-y-4">
+                <div className="h-6 bg-white/5 rounded w-1/3" />
+                <div className="h-4 bg-white/5 rounded" />
+                <div className="h-2 bg-white/5 rounded" />
+                <div className="h-20 bg-white/5 rounded-2xl" />
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon="rocket"
+            title="No presales matching filters"
+            body={presales.length === 0
+              ? 'Be the first to launch on BNB Chain. Deploy your BEP-20 token and configure a presale in minutes.'
+              : 'Try checking other filters or clear the search input.'}
+            CTA={
+              presales.length === 0 ? (
+                <Link href="/create-token" className="btn-primary">
+                  Deploy Token & Start
+                </Link>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setSearch('');
+                    setStatusFilter('all');
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((p) => (
+              <PresaleCard key={p.id} presale={p} />
+            ))}
+          </div>
+        )}
+      </div>
+    </AppLayout>
   );
 }

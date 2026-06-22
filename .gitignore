@@ -57,3 +57,5 @@ packages/contracts/artifacts/
 packages/contracts/cache/
 .claude/
 tsconfig.tsbuildinfo 
+# Design exports
+design/*.zip

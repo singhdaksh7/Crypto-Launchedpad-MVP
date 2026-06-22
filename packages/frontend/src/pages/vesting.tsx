@@ -1,17 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
-import { Layout } from '@/components/Layout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Icon } from '@/components/ui/Icon';
-import { Alert } from '@/components/ui/Alert';
-import { AddressLink } from '@/components/ui/AddressLink';
-import { ProgressBar } from '@/components/ui/ProgressBar';
+import { AlertBanner, AddressLink, KeyValueList, EmptyState, Button, FormInput, DateTimeInput, ProgressBar } from '@/components/ui';
 import { VESTING_ABI } from '@/lib/abis/Vesting';
+import { LAUNCHPAD_ABI } from '@/lib/abis/Launchpad';
 import { ERC20_ABI } from '@/lib/abis/ERC20';
 import { getContractAddresses, getProvider, isZeroAddress } from '@/lib/web3';
 import { friendlyError } from '@/lib/format';
 import { txUrl } from '@/lib/links';
+import { getPresaleStatus, softcapReached, formatEther } from '@/lib/presale';
+import { ClaimPanel, RefundPanel } from '@/components/presale/ActionBox';
+import { VestingScheduleBar } from '@/components/presale/VestingScheduleBar';
 
 type Unit = 'seconds' | 'minutes' | 'hours' | 'days';
 const UNIT_SECONDS: Record<Unit, number> = {
@@ -62,15 +65,6 @@ const toLocalISO = (date: Date) => {
   );
 };
 
-const formatDuration = (seconds: bigint): string => {
-  const s = Number(seconds);
-  if (s === 0) return '—';
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.round(s / 60)}m`;
-  if (s < 86400) return `${(s / 3600).toFixed(1)}h`;
-  return `${(s / 86400).toFixed(1)}d`;
-};
-
 const initialForm = (): FormState => ({
   token: '',
   beneficiary: '',
@@ -85,7 +79,7 @@ const initialForm = (): FormState => ({
 export default function VestingPage() {
   const router = useRouter();
   const { account, signer } = useWeb3Store();
-  const { vesting: vestingAddr } = getContractAddresses();
+  const { vesting: vestingAddr, launchpad: launchpadAddr } = getContractAddresses();
   const vestingConfigured = !isZeroAddress(vestingAddr);
 
   const [form, setForm] = useState<FormState>(initialForm);
@@ -100,7 +94,11 @@ export default function VestingPage() {
   const [listError, setListError] = useState<string | null>(null);
   const [busyRelease, setBusyRelease] = useState<number | null>(null);
 
-  // Optional ?owner=0x... filter for "view this creator's locks" deeplinks.
+  // Presale contributions claimed/refunded state
+  const [contributions, setContributions] = useState<any[]>([]);
+  const [loadingContribs, setLoadingContribs] = useState(false);
+  const [contribTxLoading, setContribTxLoading] = useState<Record<number, boolean>>({});
+
   const ownerFilter = useMemo(() => {
     const v = router.query.owner;
     return typeof v === 'string' && isValidAddress(v) ? v.toLowerCase() : null;
@@ -108,6 +106,71 @@ export default function VestingPage() {
 
   const lookupAddress = ownerFilter || account?.toLowerCase() || null;
 
+  // Fetch contributed presales
+  const fetchContributions = useCallback(async () => {
+    if (!account) {
+      setContributions([]);
+      return;
+    }
+    try {
+      setLoadingContribs(true);
+      const provider = getProvider();
+      const contract = new ethers.Contract(launchpadAddr, LAUNCHPAD_ABI, provider);
+      const counter: bigint = await contract.presaleCounter();
+      const total = Number(counter);
+
+      const list = await Promise.all(
+        Array.from({ length: total }, async (_, i) => {
+          try {
+            const c = await contract.getUserContribution(i, account);
+            if (c.amount > 0n) {
+              const details = await contract.getPresaleDetails(i);
+              const status = getPresaleStatus({
+                ...details,
+                isActive: details.isActive,
+                isFinalized: details.isFinalized,
+              });
+              const reached = softcapReached({
+                ...details,
+                totalRaised: details.totalRaised,
+                softcap: details.softcap,
+              });
+
+              // Fetch ERC20 info
+              let name = 'Unknown';
+              let symbol = 'TKN';
+              try {
+                const token = new ethers.Contract(details.tokenAddress, ERC20_ABI, provider);
+                [name, symbol] = await Promise.all([token.name(), token.symbol()]);
+              } catch {}
+
+              return {
+                id: i,
+                amount: c.amount,
+                tokenAmount: c.tokenAmount,
+                claimed: c.claimed,
+                status,
+                reached,
+                tokenAddress: details.tokenAddress,
+                tokenName: name,
+                tokenSymbol: symbol,
+              };
+            }
+          } catch (e) {
+            console.error('Failed to read contribution', i, e);
+          }
+          return null;
+        })
+      );
+      setContributions(list.filter((c) => c !== null));
+    } catch (err) {
+      console.error('Failed to load contributions', err);
+    } finally {
+      setLoadingContribs(false);
+    }
+  }, [account, launchpadAddr]);
+
+  // Fetch standard vesting schedules
   const fetchSchedules = useCallback(async () => {
     if (!lookupAddress || !vestingConfigured) {
       setSchedules([]);
@@ -118,16 +181,16 @@ export default function VestingPage() {
     try {
       const provider = getProvider();
       const v = new ethers.Contract(vestingAddr, VESTING_ABI, provider);
-      const [creatorIdsRaw, beneficiaryIdsRaw] = (await Promise.all([
+      const [creatorIdsRaw, beneficiaryIdsRaw] = await Promise.all([
         v.schedulesOfCreator(lookupAddress),
         v.schedulesOfBeneficiary(lookupAddress),
-      ])) as [bigint[], bigint[]];
+      ]);
+      
       const idSet = new Set<number>();
-      creatorIdsRaw.forEach((x) => idSet.add(Number(x)));
-      beneficiaryIdsRaw.forEach((x) => idSet.add(Number(x)));
-      const allIds: number[] = Array.from(idSet).sort((a, b) => a - b);
+      creatorIdsRaw.forEach((x: any) => idSet.add(Number(x)));
+      beneficiaryIdsRaw.forEach((x: any) => idSet.add(Number(x)));
+      const allIds = Array.from(idSet).sort((a, b) => a - b);
 
-      // Enrich each schedule with the token symbol and current releasable amount.
       const tokenInfoCache = new Map<string, { symbol: string; decimals: number }>();
       const enriched: EnrichedSchedule[] = await Promise.all(
         allIds.map(async (id: number): Promise<EnrichedSchedule> => {
@@ -157,10 +220,8 @@ export default function VestingPage() {
             }
             tokenInfoCache.set(tokenAddr, info);
           }
-          const isCreator =
-            schedule.creator.toLowerCase() === lookupAddress.toLowerCase();
-          const isBeneficiary =
-            schedule.beneficiary.toLowerCase() === lookupAddress.toLowerCase();
+          const isCreator = schedule.creator.toLowerCase() === lookupAddress.toLowerCase();
+          const isBeneficiary = schedule.beneficiary.toLowerCase() === lookupAddress.toLowerCase();
           return {
             id,
             schedule,
@@ -181,14 +242,8 @@ export default function VestingPage() {
 
   useEffect(() => {
     fetchSchedules();
-  }, [fetchSchedules]);
-
-  // Live refresh while there's anything releasable but not released.
-  useEffect(() => {
-    if (schedules.length === 0) return;
-    const id = setInterval(fetchSchedules, 20000);
-    return () => clearInterval(id);
-  }, [schedules.length, fetchSchedules]);
+    fetchContributions();
+  }, [fetchSchedules, fetchContributions]);
 
   const handleField = (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -204,43 +259,22 @@ export default function VestingPage() {
       return;
     }
     if (!vestingConfigured) {
-      setSubmitError('Vesting contract not configured. Set NEXT_PUBLIC_VESTING_ADDRESS.');
+      setSubmitError('Vesting contract not configured.');
       return;
     }
-    if (!isValidAddress(form.token)) {
-      setSubmitError('Invalid token address.');
-      return;
-    }
-    if (!isValidAddress(form.beneficiary)) {
-      setSubmitError('Invalid beneficiary address.');
+    if (!isValidAddress(form.token) || !isValidAddress(form.beneficiary)) {
+      setSubmitError('Invalid contract addresses.');
       return;
     }
     const amountNum = Number(form.amount);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    if (isNaN(amountNum) || amountNum <= 0) {
       setSubmitError('Amount must be greater than 0.');
       return;
     }
-    const cliffNum = Number(form.cliffValue);
-    const linearNum = Number(form.linearValue);
-    if (!Number.isFinite(cliffNum) || cliffNum < 0) {
-      setSubmitError('Cliff must be ≥ 0.');
-      return;
-    }
-    if (!Number.isFinite(linearNum) || linearNum < 0) {
-      setSubmitError('Linear duration must be ≥ 0.');
-      return;
-    }
-    const cliffSeconds = Math.floor(cliffNum * UNIT_SECONDS[form.cliffUnit]);
-    const linearSeconds = Math.floor(linearNum * UNIT_SECONDS[form.linearUnit]);
-    if (cliffSeconds === 0 && linearSeconds === 0) {
-      setSubmitError('Set at least one of cliff or linear duration.');
-      return;
-    }
+
+    const cliffSeconds = Math.floor(Number(form.cliffValue) * UNIT_SECONDS[form.cliffUnit]);
+    const linearSeconds = Math.floor(Number(form.linearValue) * UNIT_SECONDS[form.linearUnit]);
     const startSeconds = Math.floor(new Date(form.startISO).getTime() / 1000);
-    if (!Number.isFinite(startSeconds)) {
-      setSubmitError('Invalid start time.');
-      return;
-    }
 
     try {
       setSubmitting(true);
@@ -251,7 +285,6 @@ export default function VestingPage() {
       const decimals = Number(await token.decimals());
       const amountWei = ethers.parseUnits(form.amount, decimals);
 
-      // Approve only what's needed if current allowance is short.
       const current = (await token.allowance(account, vestingAddr)) as bigint;
       if (current < amountWei) {
         const approveTx = await token.approve(vestingAddr, amountWei);
@@ -268,8 +301,6 @@ export default function VestingPage() {
         linearSeconds,
       );
       const receipt = await tx.wait();
-
-      // Pull the new scheduleId out of the ScheduleCreated event.
       let newId = -1;
       for (const log of receipt?.logs ?? []) {
         try {
@@ -278,9 +309,7 @@ export default function VestingPage() {
             newId = Number(parsed.args.scheduleId);
             break;
           }
-        } catch {
-          /* not from vesting contract */
-        }
+        } catch {}
       }
 
       setSubmitSuccess({ scheduleId: newId, hash: receipt?.hash || tx.hash });
@@ -308,109 +337,183 @@ export default function VestingPage() {
     }
   };
 
+  // Claim presale contribution tokens
+  const handlePresaleClaim = async (presaleId: number) => {
+    if (!signer) return;
+    setContribTxLoading((prev) => ({ ...prev, [presaleId]: true }));
+    try {
+      const contract = new ethers.Contract(launchpadAddr, LAUNCHPAD_ABI, signer);
+      const tx = await contract.claimTokens(presaleId);
+      await tx.wait();
+      await fetchContributions();
+    } catch (err: any) {
+      alert(friendlyError(err));
+    } finally {
+      setContribTxLoading((prev) => ({ ...prev, [presaleId]: false }));
+    }
+  };
+
+  // Refund presale contribution BNB
+  const handlePresaleRefund = async (presaleId: number) => {
+    if (!signer) return;
+    setContribTxLoading((prev) => ({ ...prev, [presaleId]: true }));
+    try {
+      const contract = new ethers.Contract(launchpadAddr, LAUNCHPAD_ABI, signer);
+      const tx = await contract.refundContribution(presaleId);
+      await tx.wait();
+      await fetchContributions();
+    } catch (err: any) {
+      alert(friendlyError(err));
+    } finally {
+      setContribTxLoading((prev) => ({ ...prev, [presaleId]: false }));
+    }
+  };
+
   return (
-    <Layout>
-      <div className="max-w-5xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">Vesting & locks</h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Lock tokens with a cliff or vest them linearly. Use this for team/treasury
-            allocations or to lock LP tokens after a launch.
+    <AppLayout>
+      <div className="max-w-5xl mx-auto space-y-10 select-none">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-white select-none">Vesting & Timelocks</h1>
+          <p className="text-ink-400 text-sm mt-1 select-none font-semibold">
+            Claim presale allocations, manage LP locks, and unlock creator-configured schedules.
           </p>
         </div>
 
-        {!vestingConfigured && (
-          <Alert tone="warning" className="mb-6" title="Vesting contract not configured">
-            Set <code>NEXT_PUBLIC_VESTING_ADDRESS</code> in your environment after deploying
-            the latest contracts. Until then this page can&apos;t read or write schedules.
-          </Alert>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* ── Create form ───────────────────────────── */}
-          <form onSubmit={handleCreate} className="card space-y-4">
-            <h2 className="text-lg font-semibold">Create schedule</h2>
-
-            <div>
-              <label className="label-text">Token address</label>
-              <input
-                type="text"
-                value={form.token}
-                onChange={handleField('token')}
-                placeholder="0x…"
-                className="input-field mt-1.5 font-mono text-xs"
-                required
-              />
-              <p className="field-hint">Any ERC20. For LP locks, paste your LP pair address.</p>
+        {/* 1. Presale Contributions claims */}
+        <section className="space-y-4">
+          <h2 className="text-base font-bold text-white uppercase tracking-wider">Presale Claim & Refund Center</h2>
+          {!account ? (
+            <div className="card text-center py-8">
+              <p className="text-xs text-ink-500 font-semibold">Connect your wallet to manage your presale positions.</p>
             </div>
+          ) : loadingContribs ? (
+            <div className="card animate-pulse py-10 space-y-2">
+              <div className="h-4 bg-white/5 rounded w-1/3 mx-auto" />
+              <div className="h-2 bg-white/5 rounded w-1/4 mx-auto" />
+            </div>
+          ) : contributions.length === 0 ? (
+            <EmptyState
+              icon="lock"
+              title="No launchpad contributions found"
+              body="You have not participated in any token presales using this wallet. Browse live launches to contribute."
+              CTA={<Link href="/launchpads" className="btn-primary text-xs px-5 py-2">Browse Launches</Link>}
+            />
+          ) : (
+            <div className="space-y-4">
+              {contributions.map((c) => {
+                const totalTokens = formatEther(c.tokenAmount);
+                const claimedTokens = c.claimed ? totalTokens : '0';
+                const isClaim = c.status === 'ended' && c.reached;
+                const isRefund = c.status === 'ended' && !c.reached;
 
-            <div>
-              <label className="label-text">Beneficiary address</label>
-              <div className="flex gap-2 mt-1.5">
+                return (
+                  <div key={c.id} className="card p-5 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                    <div>
+                      <h4 className="font-semibold text-white truncate">{c.tokenName} ({c.tokenSymbol})</h4>
+                      <p className="text-[11px] text-ink-500 font-bold mt-1 uppercase tracking-wider">Presale #{c.id}</p>
+                    </div>
+
+                    <div className="flex-1">
+                      <VestingScheduleBar total={totalTokens} claimed={claimedTokens} className="bg-transparent border-0 p-0" />
+                    </div>
+
+                    <div className="flex justify-end">
+                      {isClaim && (
+                        <ClaimPanel
+                          claimable={totalTokens}
+                          contribution={formatEther(c.amount)}
+                          eligible={true}
+                          loading={contribTxLoading[c.id] || false}
+                          onClaim={() => handlePresaleClaim(c.id)}
+                          alreadyClaimed={c.claimed}
+                        />
+                      )}
+                      {isRefund && (
+                        <RefundPanel
+                          refundable={formatEther(c.amount)}
+                          loading={contribTxLoading[c.id] || false}
+                          onRefund={() => handlePresaleRefund(c.id)}
+                        />
+                      )}
+                      {c.status === 'active' && (
+                        <span className="text-xs text-bnb-text bg-primary-500/10 px-3 py-1 rounded-full border border-primary-500/20 font-bold">
+                          Active Contribution
+                        </span>
+                      )}
+                      {c.status === 'upcoming' && (
+                        <span className="text-xs text-ink-400 bg-white/5 px-3 py-1 rounded-full border border-white/5 font-semibold">
+                          Upcoming Sale
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* 2. Custom schedules */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-6 border-t border-white/5">
+          {/* Create form */}
+          <form onSubmit={handleCreate} className="card space-y-4">
+            <h2 className="text-base font-bold text-white uppercase tracking-wider">Lock Allocations / LP</h2>
+            
+            <FormInput
+              label="Token Address"
+              value={form.token}
+              onChange={handleField('token')}
+              placeholder="0x..."
+              className="font-mono text-xs"
+              required
+              helperText="Decimals are automatically queried on-chain."
+            />
+
+            <div className="space-y-1">
+              <label className="label-text text-xs uppercase tracking-wider font-semibold">Beneficiary Address</label>
+              <div className="flex gap-2">
                 <input
                   type="text"
                   value={form.beneficiary}
                   onChange={handleField('beneficiary')}
-                  placeholder="0x…"
+                  placeholder="0x..."
                   className="input-field font-mono text-xs flex-1"
                   required
                 />
-                <button
-                  type="button"
-                  onClick={useMyAddress}
-                  className="btn-secondary text-xs whitespace-nowrap"
-                  disabled={!account}
-                >
-                  Use mine
-                </button>
+                <Button type="button" variant="secondary" onClick={useMyAddress} disabled={!account} className="text-xs">
+                  Use Mine
+                </Button>
               </div>
-              <p className="field-hint">Who can call <code>release()</code> on this schedule.</p>
             </div>
 
-            <div>
-              <label className="label-text">Amount</label>
-              <input
-                type="number"
-                value={form.amount}
-                onChange={handleField('amount')}
-                placeholder="100000"
-                className="input-field mt-1.5"
-                min="0"
-                step="any"
-                required
-              />
-              <p className="field-hint">In token units. Decimals are read from the token.</p>
-            </div>
+            <FormInput
+              label="Amount to Lock"
+              type="number"
+              value={form.amount}
+              onChange={handleField('amount')}
+              placeholder="100000"
+              required
+            />
 
-            <div>
-              <label className="label-text">Start</label>
-              <input
-                type="datetime-local"
-                value={form.startISO}
-                onChange={handleField('startISO')}
-                className="input-field mt-1.5"
-                required
-              />
-              <p className="field-hint">Vesting timer begins at this moment.</p>
-            </div>
+            <DateTimeInput
+              label="Vesting Start Time"
+              value={form.startISO}
+              onChange={handleField('startISO')}
+              required
+            />
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label-text">Cliff</label>
-                <div className="flex gap-2 mt-1.5">
+                <label className="label-text text-xs uppercase tracking-wider font-semibold mb-1">Cliff Duration</label>
+                <div className="flex gap-2">
                   <input
                     type="number"
                     value={form.cliffValue}
                     onChange={handleField('cliffValue')}
-                    className="input-field flex-1"
+                    className="input-field flex-1 text-sm"
                     min="0"
-                    step="any"
                   />
-                  <select
-                    value={form.cliffUnit}
-                    onChange={handleField('cliffUnit')}
-                    className="input-field w-28"
-                  >
+                  <select value={form.cliffUnit} onChange={handleField('cliffUnit')} className="input-field w-20 text-xs bg-surface-2">
                     <option value="seconds">sec</option>
                     <option value="minutes">min</option>
                     <option value="hours">hr</option>
@@ -419,21 +522,16 @@ export default function VestingPage() {
                 </div>
               </div>
               <div>
-                <label className="label-text">Linear</label>
-                <div className="flex gap-2 mt-1.5">
+                <label className="label-text text-xs uppercase tracking-wider font-semibold mb-1">Linear Duration</label>
+                <div className="flex gap-2">
                   <input
                     type="number"
                     value={form.linearValue}
                     onChange={handleField('linearValue')}
-                    className="input-field flex-1"
+                    className="input-field flex-1 text-sm"
                     min="0"
-                    step="any"
                   />
-                  <select
-                    value={form.linearUnit}
-                    onChange={handleField('linearUnit')}
-                    className="input-field w-28"
-                  >
+                  <select value={form.linearUnit} onChange={handleField('linearUnit')} className="input-field w-20 text-xs bg-surface-2">
                     <option value="seconds">sec</option>
                     <option value="minutes">min</option>
                     <option value="hours">hr</option>
@@ -442,215 +540,95 @@ export default function VestingPage() {
                 </div>
               </div>
             </div>
-            <p className="text-xs text-gray-500">
-              <strong>Linear = 0</strong> turns this into a pure timelock — everything releases
-              at the cliff. Otherwise, tokens release linearly over the linear window starting
-              at the cliff.
-            </p>
 
-            {submitError && (
-              <Alert tone="error" onDismiss={() => setSubmitError(null)}>
-                {submitError}
-              </Alert>
-            )}
+            {submitError && <AlertBanner variant="error" onDismiss={() => setSubmitError(null)}>{submitError}</AlertBanner>}
             {submitSuccess && (
-              <Alert tone="success" onDismiss={() => setSubmitSuccess(null)}>
-                Schedule #{submitSuccess.scheduleId} created.{' '}
-                <a
-                  href={txUrl(submitSuccess.hash)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline"
-                >
-                  View tx
+              <AlertBanner variant="success" onDismiss={() => setSubmitSuccess(null)}>
+                Lock schedule #{submitSuccess.scheduleId} created.{' '}
+                <a href={txUrl(submitSuccess.hash)} target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                  View Tx
                 </a>
-              </Alert>
+              </AlertBanner>
             )}
 
-            <button
+            <Button
               type="submit"
+              variant="primary"
               disabled={submitting || !account || !vestingConfigured}
-              className="w-full btn-primary"
+              className="w-full"
             >
-              {submitting ? (
-                <>
-                  <Icon name="spinner" size={14} /> Submitting…
-                </>
-              ) : !account ? (
-                <>
-                  <Icon name="wallet" size={14} /> Connect wallet to continue
-                </>
-              ) : (
-                <>
-                  <Icon name="lock" size={14} /> Approve & create
-                </>
-              )}
-            </button>
-            <p className="text-[11px] text-gray-500 text-center">
-              Two transactions: ERC20 approve, then create. We skip the approve if your
-              allowance is already enough.
-            </p>
+              {submitting ? 'Creating schedule...' : 'Lock Tokens'}
+            </Button>
           </form>
 
-          {/* ── My schedules ──────────────────────────── */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">
-                {ownerFilter ? "Creator's schedules" : 'Your schedules'}
-              </h2>
+          {/* List of custom vesting contracts */}
+          <div className="card space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-white uppercase tracking-wider">Custom Locks & Timelocks</h2>
               <button
                 onClick={fetchSchedules}
                 disabled={loadingList || !lookupAddress || !vestingConfigured}
-                className="btn-ghost text-xs"
-                aria-label="Refresh"
+                className="text-ink-400 hover:text-white"
               >
-                <Icon name={loadingList ? 'spinner' : 'refresh'} size={14} />
+                <Icon name={loadingList ? 'spinner' : 'refresh'} size={14} className={loadingList ? 'animate-spin' : ''} />
               </button>
             </div>
 
-            {ownerFilter && (
-              <p className="text-xs text-gray-500 mb-3 break-all">
-                Filtered to <span className="font-mono">{ownerFilter}</span>.{' '}
-                <button
-                  onClick={() => router.push('/vesting', undefined, { shallow: true })}
-                  className="underline"
-                >
-                  Show mine
-                </button>
-              </p>
-            )}
+            {listError && <AlertBanner variant="error">{listError}</AlertBanner>}
 
-            {!account && !ownerFilter && (
-              <p className="text-sm text-gray-400">Connect a wallet to see your schedules.</p>
-            )}
+            {schedules.length === 0 ? (
+              <p className="text-xs text-ink-500 font-semibold">No custom locked allocations or LP tokens found.</p>
+            ) : (
+              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
+                {schedules.map((row) => {
+                  const total = row.schedule.totalAmount;
+                  const released = row.schedule.released;
+                  const releasable = row.releasable;
+                  const vested = released + releasable;
+                  const pct = total > 0n ? Number((vested * 10000n) / total) / 100 : 0;
+                  const fmt = (val: bigint) => Number(ethers.formatUnits(val, row.tokenDecimals)).toLocaleString();
+                  const isBeneficiary = !!account && row.schedule.beneficiary.toLowerCase() === account.toLowerCase();
+                  const fullyReleased = released === total;
 
-            {listError && (
-              <Alert tone="error" className="mb-3" onDismiss={() => setListError(null)}>
-                {listError}
-              </Alert>
-            )}
+                  return (
+                    <div key={row.id} className="bg-black/10 border border-white/5 p-4 rounded-xl space-y-3 text-xs font-semibold">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-white font-bold">{fmt(total)} {row.tokenSymbol}</p>
+                          <p className="text-[10px] text-ink-500 mt-0.5">Schedule #{row.id} · {row.role}</p>
+                        </div>
+                        <span className={`text-[9px] uppercase tracking-wider px-2 py-0.5 rounded font-bold ${
+                          row.schedule.linearSeconds === 0n ? 'bg-amber-500/10 text-amber-300' : 'bg-sky-500/10 text-sky-300'
+                        }`}>
+                          {row.schedule.linearSeconds === 0n ? 'Timelock' : 'Vesting'}
+                        </span>
+                      </div>
 
-            {lookupAddress && !loadingList && schedules.length === 0 && !listError && (
-              <p className="text-sm text-gray-500">No schedules found.</p>
-            )}
+                      <ProgressBar value={vested} max={total} showMarker={false} />
+                      <div className="flex justify-between text-[10px] text-ink-400">
+                        <span>{pct.toFixed(2)}% vested</span>
+                        <span>{fmt(released)} released</span>
+                      </div>
 
-            <div className="space-y-3">
-              {schedules.map((row) => (
-                <ScheduleRow
-                  key={row.id}
-                  row={row}
-                  account={account}
-                  busy={busyRelease === row.id}
-                  onRelease={handleRelease}
-                />
-              ))}
-            </div>
+                      {isBeneficiary && !fullyReleased && (
+                        <Button
+                          variant="primary"
+                          onClick={() => handleRelease(row.id)}
+                          disabled={busyRelease === row.id || releasable === 0n}
+                          className="w-full text-xs py-2 mt-2"
+                        >
+                          {releasable === 0n ? 'No unlocked tokens' : `Release ${fmt(releasable)} ${row.tokenSymbol}`}
+                        </Button>
+                      )}
+                      {fullyReleased && <p className="text-[10px] text-emerald-400 text-center font-bold">Released ✓</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        </div>
+        </section>
       </div>
-    </Layout>
+    </AppLayout>
   );
 }
-
-interface ScheduleRowProps {
-  row: EnrichedSchedule;
-  account: string | null;
-  busy: boolean;
-  onRelease: (id: number) => void;
-}
-
-const ScheduleRow: React.FC<ScheduleRowProps> = ({ row, account, busy, onRelease }) => {
-  const { schedule, releasable, tokenSymbol, tokenDecimals, role, id } = row;
-  const total = schedule.totalAmount;
-  const released = schedule.released;
-  const vested = released + releasable;
-  const pct = total > 0n ? Number((vested * 10000n) / total) / 100 : 0;
-  const cliffEnd = Number(schedule.start + schedule.cliffSeconds) * 1000;
-  const linearEnd = cliffEnd + Number(schedule.linearSeconds) * 1000;
-  const isTimelock = schedule.linearSeconds === 0n;
-  const fmt = (v: bigint) => Number(ethers.formatUnits(v, tokenDecimals)).toLocaleString(undefined, {
-    maximumFractionDigits: 4,
-  });
-  const isBeneficiary =
-    !!account && schedule.beneficiary.toLowerCase() === account.toLowerCase();
-  const fullyReleased = released === total;
-
-  return (
-    <div className="bg-surface-2 border border-white/5 rounded-lg p-3 text-sm">
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="min-w-0">
-          <p className="font-semibold flex items-center gap-2 flex-wrap">
-            <span className="text-base">
-              {fmt(total)} {tokenSymbol}
-            </span>
-            <span
-              className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                isTimelock
-                  ? 'bg-amber-500/10 text-amber-300'
-                  : 'bg-sky-500/10 text-sky-300'
-              }`}
-            >
-              {isTimelock ? 'Timelock' : 'Vesting'}
-            </span>
-            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/5 text-gray-400">
-              {role === 'both' ? 'creator + beneficiary' : role}
-            </span>
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">Schedule #{id}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-gray-500">Releasable</p>
-          <p className="font-mono text-sm">{fmt(releasable)}</p>
-        </div>
-      </div>
-
-      <ProgressBar raised={vested} hardcap={total} />
-      <div className="flex justify-between text-xs text-gray-500 mt-1">
-        <span>{pct.toFixed(2)}% vested</span>
-        <span>{fmt(released)} released</span>
-      </div>
-
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-3 text-xs">
-        <dt className="text-gray-500">Beneficiary</dt>
-        <dd className="text-right">
-          <AddressLink address={schedule.beneficiary} />
-        </dd>
-        <dt className="text-gray-500">Token</dt>
-        <dd className="text-right">
-          <AddressLink address={schedule.token} variant="token" />
-        </dd>
-        <dt className="text-gray-500">Cliff ends</dt>
-        <dd className="text-right">{new Date(cliffEnd).toLocaleString()}</dd>
-        {!isTimelock && (
-          <>
-            <dt className="text-gray-500">Linear ends</dt>
-            <dd className="text-right">{new Date(linearEnd).toLocaleString()}</dd>
-          </>
-        )}
-      </dl>
-
-      {isBeneficiary && !fullyReleased && (
-        <button
-          onClick={() => onRelease(id)}
-          disabled={busy || releasable === 0n}
-          className="w-full btn-primary mt-3"
-        >
-          {busy ? (
-            <>
-              <Icon name="spinner" size={12} /> Releasing…
-            </>
-          ) : releasable === 0n ? (
-            'Nothing to release yet'
-          ) : (
-            <>
-              <Icon name="arrow-down" size={12} /> Release {fmt(releasable)} {tokenSymbol}
-            </>
-          )}
-        </button>
-      )}
-      {fullyReleased && (
-        <p className="text-xs text-emerald-400 mt-3 text-center">Fully released ✓</p>
-      )}
-    </div>
-  );
-};

@@ -3,15 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0b0d12;
-  --surface-1: #11141b;
-  --surface-2: #161a23;
-  --surface-3: #1d2230;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text: #e8eaf0;
-  --text-muted: #9aa1b1;
-  --text-faint: #6b7280;
+  --bg: #070A12;
+  --surface-1: #0D1320;
+  --surface-2: #121B2D;
+  --surface-3: #18243C;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: #F4F7FC;
+  --text-muted: #9DAAC0;
+  --text-faint: #7E8BA3;
 }
 
 html {
@@ -37,8 +37,8 @@ body {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(60rem 40rem at 80% -10%, rgba(0, 188, 212, 0.10), transparent 60%),
-    radial-gradient(50rem 30rem at -10% 10%, rgba(0, 247, 255, 0.10), transparent 60%),
+    radial-gradient(60rem 40rem at 80% -10%, rgba(240, 185, 11, 0.02), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 10%, rgba(24, 36, 60, 0.3), transparent 60%),
     var(--bg);
   pointer-events: none;
 }
@@ -53,8 +53,8 @@ body {
   }
 
   .btn-primary {
-    @apply btn bg-primary-600 hover:bg-primary-500 text-white shadow-soft
-           hover:shadow-glow active:translate-y-px;
+    @apply btn bg-gradient-to-b from-bnb-light to-bnb text-[#1A1500] hover:brightness-110 shadow-soft
+           hover:shadow-glow active:translate-y-px font-semibold;
   }
 
   .btn-secondary {
@@ -76,31 +76,39 @@ body {
 
   /* ── Cards ──────────────────────────────────────── */
   .card {
-    @apply bg-surface-1 border border-white/5 rounded-3xl p-6 shadow-soft;
+    @apply bg-surface border border-white/[.07] rounded-[18px] p-6 shadow-soft;
   }
 
   .card-tight {
-    @apply bg-surface-1 border border-white/5 rounded-2xl p-4 shadow-soft;
+    @apply bg-surface border border-white/[.07] rounded-[14px] p-4 shadow-soft;
   }
 
   .card-hover {
-    @apply transition-all duration-200 hover:border-white/15 hover:bg-surface-2;
+    @apply transition-all duration-200 hover:border-white/[0.15] hover:bg-surface-2;
+  }
+
+  .card-glass {
+    @apply bg-white/[.04] border border-white/[0.08] backdrop-blur-md bg-gradient-to-b from-white/5 to-white/[.015] rounded-[18px] p-6 shadow-soft;
+  }
+
+  .card-flat {
+    @apply bg-surface border border-white/[.07] rounded-[10px] p-6 shadow-soft;
   }
 
   /* ── Form fields ───────────────────────────────── */
   .input-field {
-    @apply w-full px-4 py-3 bg-surface-2 border border-white/10 rounded-full
+    @apply w-full px-4 py-3 bg-surface-2 border border-white/10 rounded-[11px]
            text-white placeholder:text-gray-500
            focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30
            transition-colors;
   }
 
   .label-text {
-    @apply block text-gray-300 text-sm font-medium;
+    @apply block text-ink-400 text-sm font-medium;
   }
 
   .field-hint {
-    @apply text-xs text-gray-500 mt-1;
+    @apply text-xs text-ink-500 mt-1;
   }
 
   .field-error {
@@ -127,7 +135,7 @@ body {
   }
 
   .text-gradient {
-    background: linear-gradient(135deg, #00f7ff 0%, #00bcd4 100%);
+    background: linear-gradient(135deg, #F8D446 0%, #F0B90B 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;

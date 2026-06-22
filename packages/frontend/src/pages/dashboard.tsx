@@ -1,35 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
-import { Layout } from '@/components/Layout';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { LAUNCHPAD_ABI } from '@/lib/abis/Launchpad';
+import { TOKEN_FACTORY_ABI } from '@/lib/abis/TokenFactory';
 import { ERC20_ABI } from '@/lib/abis/ERC20';
-import {
-  getContractAddresses,
-  getProvider,
-  isValidAddress,
-  parseEther,
-} from '@/lib/web3';
-import { assertCreatorAccess } from '@/lib/creatorAccess';
-import {
-  PresaleConfig,
-  formatEther,
-  getPresaleStatus,
-  progressPct,
-  softcapReached,
-} from '@/lib/presale';
+import { getContractAddresses, getProvider } from '@/lib/web3';
+import { PresaleConfig, getPresaleStatus, softcapReached, formatEther, progressPct } from '@/lib/presale';
 import { friendlyError, formatBnb } from '@/lib/format';
 import { txUrl } from '@/lib/links';
 import { Icon } from '@/components/ui/Icon';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { ProgressBar } from '@/components/ui/ProgressBar';
-import { Alert } from '@/components/ui/Alert';
-import { AddressLink } from '@/components/ui/AddressLink';
-import { FundingBadge } from '@/components/ui/FundingBadge';
+import { AlertBanner, StatCard, EmptyState, StatusBadge, FundingBadge, ProgressBar, Button } from '@/components/ui';
+import { AccessBanner } from '@/components/dashboard/AccessBanner';
+import { ActivityFeed } from '@/components/dashboard/ActivityFeed';
+import { TokenCard } from '@/components/token/TokenCard';
+import { PresaleCard } from '@/components/presale/PresaleCard';
 import { FundingPanel } from '@/components/FundingPanel';
-import { AccessGate } from '@/components/AccessGate';
 import { usePresaleFunding } from '@/hooks/usePresaleFunding';
 import { useProtocolFee } from '@/hooks/useProtocolFee';
 
@@ -39,263 +27,119 @@ interface MyPresale extends PresaleConfig {
   tokenSymbol: string;
 }
 
-interface FormData {
-  tokenAddress: string;
-  tokenPrice: string;
-  softcap: string;
-  hardcap: string;
-  startTime: string;
-  endTime: string;
-  maxBuyPerUser: string;
-}
-
-const EMPTY_FORM: FormData = {
-  tokenAddress: '',
-  tokenPrice: '',
-  softcap: '',
-  hardcap: '',
-  startTime: '',
-  endTime: '',
-  maxBuyPerUser: '',
-};
-
-function validateForm(d: FormData): Partial<Record<keyof FormData, string>> {
-  const errors: Partial<Record<keyof FormData, string>> = {};
-  if (!isValidAddress(d.tokenAddress)) {
-    errors.tokenAddress = 'Enter a valid token address.';
-  }
-  const price = parseFloat(d.tokenPrice);
-  if (!price || price <= 0) errors.tokenPrice = 'Price must be greater than 0.';
-  const soft = parseFloat(d.softcap);
-  const hard = parseFloat(d.hardcap);
-  const max = parseFloat(d.maxBuyPerUser);
-  if (!soft || soft <= 0) errors.softcap = 'Softcap must be greater than 0.';
-  if (!hard || hard <= 0) errors.hardcap = 'Hardcap must be greater than 0.';
-  if (soft && hard && soft >= hard) {
-    errors.hardcap = 'Hardcap must be greater than softcap.';
-  }
-  if (!max || max <= 0) errors.maxBuyPerUser = 'Max per user must be greater than 0.';
-  if (max && hard && max > hard) {
-    errors.maxBuyPerUser = 'Max per user can’t exceed hardcap.';
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const start = d.startTime ? Math.floor(new Date(d.startTime).getTime() / 1000) : 0;
-  const end = d.endTime ? Math.floor(new Date(d.endTime).getTime() / 1000) : 0;
-  // Contract requires block.timestamp < startTime strictly. Add a small forward
-  // buffer so the tx still passes after the user takes a few seconds to sign.
-  const START_BUFFER_SEC = 60;
-  if (!start) errors.startTime = 'Pick a start time.';
-  else if (start <= now + START_BUFFER_SEC) {
-    errors.startTime = 'Start must be at least 1 minute in the future.';
-  }
-  if (!end) errors.endTime = 'Pick an end time.';
-  else if (start && end <= start) errors.endTime = 'End must be after start.';
-  return errors;
-}
-
-type TokenCheck =
-  | { status: 'idle' }
-  | { status: 'checking' }
-  | { status: 'ok'; name: string; symbol: string }
-  | { status: 'error'; message: string };
-
-async function inspectErc20(address: string): Promise<TokenCheck> {
-  try {
-    const provider = getProvider();
-    const code = await provider.getCode(address);
-    if (!code || code === '0x') {
-      return { status: 'error', message: 'No contract deployed at this address.' };
-    }
-    const token = new ethers.Contract(address, ERC20_ABI, provider);
-    const [name, symbol] = await Promise.all([token.name(), token.symbol()]);
-    // Touching decimals() proves the ERC20 interface is honored end-to-end.
-    await token.decimals();
-    return { status: 'ok', name: String(name), symbol: String(symbol) };
-  } catch {
-    return { status: 'error', message: 'Address is not a standard ERC20 token.' };
-  }
+interface MyToken {
+  address: string;
+  name: string;
+  symbol: string;
+  supply: string;
+  decimals: number;
 }
 
 export default function Dashboard() {
   const router = useRouter();
   const { account, signer } = useWeb3Store();
-  const [tab, setTab] = useState<'create' | 'manage'>('create');
   const { label: feeLabel } = useProtocolFee();
 
-  /* ── Create form ───────────────────────────────── */
-  const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
-  const [formErrors, setFormErrors] = useState<Partial<Record<keyof FormData, string>>>({});
-  const [submitted, setSubmitted] = useState(false);
-  const [formLoading, setFormLoading] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [tokenCheck, setTokenCheck] = useState<TokenCheck>({ status: 'idle' });
-  const [formSuccess, setFormSuccess] = useState<
-    | {
-        msg: string;
-        hash?: string;
-        presaleId: number;
-        tokenAddress: string;
-      }
-    | null
-  >(null);
-
-  // Re-validate the token address whenever it changes — invalidates a previous
-  // result so a stale "ok" badge can't outlive an edit.
-  useEffect(() => {
-    setTokenCheck({ status: 'idle' });
-  }, [formData.tokenAddress]);
-
-  const checkTokenAddress = useCallback(async () => {
-    const addr = formData.tokenAddress.trim();
-    if (!isValidAddress(addr)) return;
-    setTokenCheck({ status: 'checking' });
-    const result = await inspectErc20(addr);
-    // Drop result if the user changed the address while we were fetching.
-    if (addr !== formData.tokenAddress.trim()) return;
-    setTokenCheck(result);
-  }, [formData.tokenAddress]);
-
-  useEffect(() => {
-    if (router.query.token && typeof router.query.token === 'string') {
-      setFormData((p) => ({ ...p, tokenAddress: router.query.token as string }));
-    }
-  }, [router.query.token]);
-
-  const liveErrors = useMemo(() => validateForm(formData), [formData]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleCreatePresale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitted(true);
-    const errs = validateForm(formData);
-    setFormErrors(errs);
-    if (Object.keys(errs).length > 0 || !signer) {
-      if (!signer) setFormError('Connect your wallet first.');
-      return;
-    }
-    // Block submission unless the token address has been verified as a real
-    // ERC20. Run the check inline if the user never blurred the field.
-    let check = tokenCheck;
-    if (check.status !== 'ok') {
-      setTokenCheck({ status: 'checking' });
-      check = await inspectErc20(formData.tokenAddress.trim());
-      setTokenCheck(check);
-      if (check.status !== 'ok') return;
-    }
-    try {
-      setFormLoading(true);
-      setFormError(null);
-      setFormSuccess(null);
-      await assertCreatorAccess(account);
-
-      const { launchpad } = getContractAddresses();
-      const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer);
-
-      const tx = await contract.createPresale(
-        formData.tokenAddress,
-        parseEther(formData.tokenPrice),
-        parseEther(formData.softcap),
-        parseEther(formData.hardcap),
-        Math.floor(new Date(formData.startTime).getTime() / 1000),
-        Math.floor(new Date(formData.endTime).getTime() / 1000),
-        parseEther(formData.maxBuyPerUser),
-      );
-      const receipt = await tx.wait();
-
-      // Resolve the new presale id from the post-call counter.
-      const counter: bigint = await contract.presaleCounter();
-      const newId = Math.max(0, Number(counter) - 1);
-
-      setFormSuccess({
-        msg: 'Presale created. Fund it with tokens so buyers can claim later.',
-        hash: receipt?.hash || tx.hash,
-        presaleId: newId,
-        tokenAddress: formData.tokenAddress,
-      });
-      setFormData(EMPTY_FORM);
-      setSubmitted(false);
-      setFormErrors({});
-    } catch (err: any) {
-      setFormError(friendlyError(err));
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  const showError = (field: keyof FormData) =>
-    submitted && (formErrors[field] || liveErrors[field]);
-
-  /* ── My presales ───────────────────────────────── */
   const [myPresales, setMyPresales] = useState<MyPresale[]>([]);
-  const [manageLoading, setManageLoading] = useState(false);
-  const [manageError, setManageError] = useState<string | null>(null);
-  const [txLoading, setTxLoading] = useState(false);
-  const [txMsg, setTxMsg] = useState<
-    { type: 'error' | 'success'; text: string; hash?: string } | null
-  >(null);
+  const [myTokens, setMyTokens] = useState<MyToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchMyPresales = useCallback(async () => {
+  const [txLoading, setTxLoading] = useState(false);
+  const [txMsg, setTxMsg] = useState<{ type: 'error' | 'success'; text: string; hash?: string } | null>(null);
+
+  // Stats calculation
+  const totalRaisedBnb = myPresales.reduce((acc, p) => acc + parseFloat(formatEther(p.totalRaised)), 0);
+  const activePresalesCount = myPresales.filter(p => getPresaleStatus(p) === 'active').length;
+
+  const fetchCreatorData = useCallback(async () => {
     if (!account) return;
     try {
-      setManageLoading(true);
-      setManageError(null);
+      setLoading(true);
+      setError(null);
       const provider = getProvider();
-      const { launchpad } = getContractAddresses();
-      const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, provider);
-      const counter: bigint = await contract.presaleCounter();
-      const total = Number(counter);
-      if (total === 0) {
-        setMyPresales([]);
-        return;
+      const { launchpad: launchpadAddr, tokenFactory: factoryAddr } = getContractAddresses();
+      
+      const launchpad = new ethers.Contract(launchpadAddr, LAUNCHPAD_ABI, provider);
+      const factory = new ethers.Contract(factoryAddr, TOKEN_FACTORY_ABI, provider);
+
+      // 1. Fetch presales
+      const counter: bigint = await launchpad.presaleCounter();
+      const totalPresales = Number(counter);
+      let creatorPresales: MyPresale[] = [];
+      
+      if (totalPresales > 0) {
+        const all = await Promise.all(
+          Array.from({ length: totalPresales }, (_, i) =>
+            launchpad.getPresaleDetails(i).then((d: PresaleConfig) => ({
+              id: i,
+              tokenAddress: d.tokenAddress,
+              owner: d.owner,
+              tokenPrice: d.tokenPrice,
+              softcap: d.softcap,
+              hardcap: d.hardcap,
+              startTime: d.startTime,
+              endTime: d.endTime,
+              maxBuyPerUser: d.maxBuyPerUser,
+              totalRaised: d.totalRaised,
+              isActive: d.isActive,
+              isFinalized: d.isFinalized,
+            }))
+          )
+        );
+        const mine = all.filter((p) => p.owner.toLowerCase() === account.toLowerCase());
+        
+        creatorPresales = await Promise.all(
+          mine.map(async (p) => {
+            let tokenName = 'Unknown';
+            let tokenSymbol = 'TKN';
+            try {
+              const token = new ethers.Contract(p.tokenAddress, ERC20_ABI, provider);
+              [tokenName, tokenSymbol] = await Promise.all([token.name(), token.symbol()]);
+            } catch {}
+            return { ...p, tokenName, tokenSymbol } as MyPresale;
+          })
+        );
       }
-      const all = await Promise.all(
-        Array.from({ length: total }, (_, i) =>
-          contract.getPresaleDetails(i).then((d: PresaleConfig) => ({
-            id: i,
-            tokenAddress: d.tokenAddress,
-            owner: d.owner,
-            tokenPrice: d.tokenPrice,
-            softcap: d.softcap,
-            hardcap: d.hardcap,
-            startTime: d.startTime,
-            endTime: d.endTime,
-            maxBuyPerUser: d.maxBuyPerUser,
-            totalRaised: d.totalRaised,
-            isActive: d.isActive,
-            isFinalized: d.isFinalized,
-          })),
-        ),
-      );
-      const mine = all.filter(
-        (p) => p.owner.toLowerCase() === account.toLowerCase(),
-      );
-      const enriched = await Promise.all(
-        mine.map(async (p) => {
-          let tokenName = '';
-          let tokenSymbol = '';
-          try {
-            const token = new ethers.Contract(p.tokenAddress, ERC20_ABI, provider);
-            [tokenName, tokenSymbol] = await Promise.all([token.name(), token.symbol()]);
-          } catch {}
-          return { ...p, tokenName, tokenSymbol } as MyPresale;
-        }),
-      );
-      setMyPresales(enriched.reverse());
+
+      // 2. Fetch created tokens
+      let creatorTokens: MyToken[] = [];
+      try {
+        const tokenAddresses: string[] = await factory.getTokensByCreator(account);
+        creatorTokens = await Promise.all(
+          tokenAddresses.map(async (addr) => {
+            const token = new ethers.Contract(addr, ERC20_ABI, provider);
+            const [name, symbol, supply, decimals] = await Promise.all([
+              token.name(),
+              token.symbol(),
+              token.totalSupply(),
+              token.decimals(),
+            ]);
+            return {
+              address: addr,
+              name: String(name),
+              symbol: String(symbol),
+              supply: formatEther(supply),
+              decimals: Number(decimals),
+            };
+          })
+        );
+      } catch (e) {
+        console.error('Failed to query factory tokens', e);
+      }
+
+      setMyPresales(creatorPresales.reverse());
+      setMyTokens(creatorTokens.reverse());
     } catch (err: any) {
-      setManageError(friendlyError(err));
+      setError(friendlyError(err));
     } finally {
-      setManageLoading(false);
+      setLoading(false);
     }
   }, [account]);
 
   useEffect(() => {
-    if (tab === 'manage') fetchMyPresales();
-  }, [tab, fetchMyPresales]);
+    fetchCreatorData();
+  }, [fetchCreatorData]);
 
   const handleWithdraw = async (presaleId: number) => {
     if (!signer) return;
@@ -306,8 +150,8 @@ export default function Dashboard() {
       const contract = new ethers.Contract(launchpad, LAUNCHPAD_ABI, signer);
       const tx = await contract.withdrawFunds(presaleId);
       const receipt = await tx.wait();
-      setTxMsg({ type: 'success', text: 'Funds withdrawn.', hash: receipt?.hash || tx.hash });
-      fetchMyPresales();
+      setTxMsg({ type: 'success', text: 'Funds withdrawn successfully.', hash: receipt?.hash || tx.hash });
+      fetchCreatorData();
     } catch (err: any) {
       setTxMsg({ type: 'error', text: friendlyError(err) });
     } finally {
@@ -315,330 +159,140 @@ export default function Dashboard() {
     }
   };
 
-  /* ── Render ────────────────────────────────────── */
   if (!account) {
     return (
-      <Layout>
-        <div className="max-w-xl mx-auto">
-          <div className="card text-center py-16">
-            <div className="mx-auto h-12 w-12 rounded-full bg-white/5 flex items-center justify-center text-gray-300 mb-3">
-              <Icon name="wallet" size={20} />
-            </div>
-            <p className="text-lg font-medium mb-1">Wallet required</p>
-            <p className="text-sm text-gray-400 max-w-sm mx-auto">
-              Connect a wallet to create presales and manage your launches.
-            </p>
-          </div>
-        </div>
-      </Layout>
+      <DashboardLayout>
+        <EmptyState
+          icon="wallet"
+          title="Creator Wallet Required"
+          body="Connect your Web3 creator wallet to access the dashboard, view deployment history, and withdraw presale funds."
+        />
+      </DashboardLayout>
     );
   }
 
   return (
-    <Layout>
-      <div className="max-w-3xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-8">
+    <DashboardLayout>
+      <div className="space-y-6 select-none">
+        {/* Header */}
+        <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">Dashboard</h1>
-            <p className="text-gray-400 text-sm mt-1">
-              Create presales and manage your launches.
+            <h1 className="text-2xl font-extrabold text-white">Creator Dashboard</h1>
+            <p className="text-xs text-ink-400 mt-1 font-semibold">
+              Manage your launched tokens, monitor presale progress, and claim raised BNB.
             </p>
           </div>
+          <button
+            onClick={fetchCreatorData}
+            disabled={loading}
+            className="p-2 rounded-full bg-white/5 text-ink-400 hover:text-white"
+          >
+            <Icon name={loading ? 'spinner' : 'refresh'} size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
         </div>
 
-        {/* Tabs */}
-        <div role="tablist" className="flex border-b border-white/5 mb-6">
-          {(['create', 'manage'] as const).map((t) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={tab === t}
-              onClick={() => setTab(t)}
-              className={`px-4 py-2.5 text-sm font-medium relative transition-colors ${
-                tab === t
-                  ? 'text-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              {t === 'create'
-                ? 'Create presale'
-                : `My presales${myPresales.length ? ` (${myPresales.length})` : ''}`}
-              {tab === t && (
-                <span className="absolute left-0 bottom-0 h-0.5 w-full bg-primary-500" />
+        {/* Access Banner */}
+        <AccessBanner />
+
+        {txMsg && (
+          <AlertBanner variant={txMsg.type} onDismiss={() => setTxMsg(null)} title={txMsg.text}>
+            {txMsg.hash && (
+              <a href={txUrl(txMsg.hash)} target="_blank" rel="noopener noreferrer" className="underline text-xs">
+                View Transaction <Icon name="external" size={10} />
+              </a>
+            )}
+          </AlertBanner>
+        )}
+
+        {error && <AlertBanner variant="error">{error}</AlertBanner>}
+
+        {/* Stats strip */}
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="Funds Raised" value={`${formatBnb(totalRaisedBnb)} BNB`} variant="B" tone="green" loading={loading} />
+          <StatCard label="Tokens Deployed" value={String(myTokens.length)} variant="B" tone="plain" loading={loading} />
+          <StatCard label="Presales Run" value={String(myPresales.length)} variant="B" tone="plain" loading={loading} />
+          <StatCard label="Active Presales" value={String(activePresalesCount)} variant="A" tone="yellow" loading={loading} />
+        </section>
+
+        {/* Creator Content grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {/* Left Column: Lists */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* Presales List */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-ink-500">Your Presales</h3>
+                <Link href="/launchpads/create" className="text-xs text-bnb-text hover:text-white font-bold transition">
+                  Create Presale +
+                </Link>
+              </div>
+
+              {loading ? (
+                <div className="space-y-3">
+                  {[0, 1].map((i) => (
+                    <div key={i} className="card animate-pulse py-12" />
+                  ))}
+                </div>
+              ) : myPresales.length === 0 ? (
+                <EmptyState
+                  icon="rocket"
+                  title="No presales configured"
+                  body="Run a decentralized presale for your token. Configure lock times, price, and personal limits."
+                  CTA={<Link href="/launchpads/create" className="btn-primary text-xs px-5 py-2">Start Presale</Link>}
+                />
+              ) : (
+                <div className="space-y-4">
+                  {myPresales.map((p) => (
+                    <ManageCard key={p.id} presale={p} onWithdraw={handleWithdraw} txLoading={txLoading} />
+                  ))}
+                </div>
               )}
-            </button>
-          ))}
+            </div>
+
+            {/* Deployed Tokens List */}
+            <div className="space-y-3 pt-4 border-t border-white/5">
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-ink-500">Your Tokens</h3>
+                <Link href="/create-token" className="text-xs text-bnb-text hover:text-white font-bold transition">
+                  Create Token +
+                </Link>
+              </div>
+
+              {loading ? (
+                <div className="card animate-pulse py-12" />
+              ) : myTokens.length === 0 ? (
+                <EmptyState
+                  icon="plus"
+                  title="No tokens deployed yet"
+                  body="Mint your first BEP-20 token on BNB Smart Chain using the no-code factory."
+                  CTA={<Link href="/create-token" className="btn-primary text-xs px-5 py-2">Mint Token</Link>}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {myTokens.map((t) => (
+                    <TokenCard
+                      key={t.address}
+                      token={t}
+                      onCreatePresale={(addr) => router.push(`/launchpads/create?token=${addr}`)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Activity */}
+          <div className="lg:col-span-1">
+            <ActivityFeed />
+          </div>
         </div>
-
-        {/* ── Create tab ─────────────────────────────── */}
-        {tab === 'create' && (
-          <AccessGate title="Unlock presale creation" description="Verify your wallet and complete the ₹1000 platform access fee before creating a presale.">
-          <div className="space-y-4">
-            {formError && <Alert tone="error" onDismiss={() => setFormError(null)}>{formError}</Alert>}
-            {formSuccess && (
-              <>
-                <Alert
-                  tone="success"
-                  onDismiss={() => setFormSuccess(null)}
-                  title={formSuccess.msg}
-                >
-                  <div className="flex flex-wrap gap-3 items-center mt-1">
-                    <Link
-                      href={`/presale/${formSuccess.presaleId}`}
-                      className="underline underline-offset-2 text-sm"
-                    >
-                      Open presale page
-                    </Link>
-                    <button
-                      onClick={() => setTab('manage')}
-                      className="underline underline-offset-2 text-sm"
-                    >
-                      View my presales
-                    </button>
-                    {formSuccess.hash && (
-                      <a
-                        href={txUrl(formSuccess.hash)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline underline-offset-2 text-sm inline-flex items-center gap-1"
-                      >
-                        View transaction <Icon name="external" size={12} />
-                      </a>
-                    )}
-                  </div>
-                </Alert>
-                <FundingPanel
-                  presaleId={formSuccess.presaleId}
-                  tokenAddress={formSuccess.tokenAddress}
-                  isOwner
-                />
-              </>
-            )}
-
-            <form onSubmit={handleCreatePresale} className="card space-y-5">
-              <div>
-                <label className="label-text">Token address</label>
-                <input
-                  type="text"
-                  name="tokenAddress"
-                  value={formData.tokenAddress}
-                  onChange={handleChange}
-                  onBlur={checkTokenAddress}
-                  placeholder="0x..."
-                  className="input-field mt-1.5 font-mono text-sm"
-                  spellCheck={false}
-                />
-                {showError('tokenAddress') ? (
-                  <p className="field-error">{formErrors.tokenAddress || liveErrors.tokenAddress}</p>
-                ) : tokenCheck.status === 'checking' ? (
-                  <p className="field-hint">Checking token…</p>
-                ) : tokenCheck.status === 'error' ? (
-                  <p className="field-error">{tokenCheck.message}</p>
-                ) : tokenCheck.status === 'ok' ? (
-                  <p className="field-hint text-emerald-400">
-                    Verified ERC20: {tokenCheck.name} ({tokenCheck.symbol})
-                  </p>
-                ) : (
-                  !formData.tokenAddress && (
-                    <p className="field-hint">
-                      Don’t have a token yet?{' '}
-                      <Link href="/create-token" className="text-primary-400 hover:underline">
-                        Create one
-                      </Link>
-                    </p>
-                  )
-                )}
-              </div>
-
-              <div>
-                <label className="label-text">Token price (BNB per token)</label>
-                <input
-                  type="number"
-                  name="tokenPrice"
-                  value={formData.tokenPrice}
-                  onChange={handleChange}
-                  placeholder="0.0001"
-                  className="input-field mt-1.5"
-                  step="0.00001"
-                  min="0"
-                />
-                {showError('tokenPrice') && (
-                  <p className="field-error">{formErrors.tokenPrice || liveErrors.tokenPrice}</p>
-                )}
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="label-text">Softcap (BNB)</label>
-                  <input
-                    type="number"
-                    name="softcap"
-                    value={formData.softcap}
-                    onChange={handleChange}
-                    placeholder="1"
-                    className="input-field mt-1.5"
-                    step="0.01"
-                    min="0"
-                  />
-                  {showError('softcap') && (
-                    <p className="field-error">{formErrors.softcap || liveErrors.softcap}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="label-text">Hardcap (BNB)</label>
-                  <input
-                    type="number"
-                    name="hardcap"
-                    value={formData.hardcap}
-                    onChange={handleChange}
-                    placeholder="10"
-                    className="input-field mt-1.5"
-                    step="0.01"
-                    min="0"
-                  />
-                  {showError('hardcap') && (
-                    <p className="field-error">{formErrors.hardcap || liveErrors.hardcap}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="label-text">Start time</label>
-                  <input
-                    type="datetime-local"
-                    name="startTime"
-                    value={formData.startTime}
-                    onChange={handleChange}
-                    className="input-field mt-1.5"
-                  />
-                  {showError('startTime') && (
-                    <p className="field-error">{formErrors.startTime || liveErrors.startTime}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="label-text">End time</label>
-                  <input
-                    type="datetime-local"
-                    name="endTime"
-                    value={formData.endTime}
-                    onChange={handleChange}
-                    className="input-field mt-1.5"
-                  />
-                  {showError('endTime') && (
-                    <p className="field-error">{formErrors.endTime || liveErrors.endTime}</p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="label-text">Max buy per wallet (BNB)</label>
-                <input
-                  type="number"
-                  name="maxBuyPerUser"
-                  value={formData.maxBuyPerUser}
-                  onChange={handleChange}
-                  placeholder="1"
-                  className="input-field mt-1.5"
-                  step="0.01"
-                  min="0"
-                />
-                {showError('maxBuyPerUser') && (
-                  <p className="field-error">
-                    {formErrors.maxBuyPerUser || liveErrors.maxBuyPerUser}
-                  </p>
-                )}
-              </div>
-
-              <Alert tone="info">
-                Make sure the launchpad contract is approved to transfer the
-                token amount you intend to sell. The protocol takes {feeLabel} of raised
-                BNB on successful sales.
-              </Alert>
-
-              <button
-                type="submit"
-                disabled={formLoading}
-                className="w-full btn-primary"
-              >
-                {formLoading ? (
-                  <>
-                    <Icon name="spinner" size={14} /> Creating presale…
-                  </>
-                ) : (
-                  'Create presale'
-                )}
-              </button>
-            </form>
-          </div>
-          </AccessGate>
-        )}
-
-        {/* ── Manage tab ─────────────────────────────── */}
-        {tab === 'manage' && (
-          <div className="space-y-4">
-            {txMsg && (
-              <Alert
-                tone={txMsg.type}
-                onDismiss={() => setTxMsg(null)}
-                title={txMsg.text}
-              >
-                {txMsg.hash && (
-                  <a
-                    href={txUrl(txMsg.hash)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline underline-offset-2 text-sm inline-flex items-center gap-1"
-                  >
-                    View transaction <Icon name="external" size={12} />
-                  </a>
-                )}
-              </Alert>
-            )}
-
-            {manageError && (
-              <Alert tone="error" onDismiss={() => setManageError(null)}>{manageError}</Alert>
-            )}
-
-            {manageLoading ? (
-              <div className="space-y-3">
-                {[0, 1].map((i) => (
-                  <div key={i} className="card animate-pulse space-y-3">
-                    <div className="h-5 bg-white/5 rounded w-1/2" />
-                    <div className="h-2 bg-white/5 rounded" />
-                    <div className="h-8 bg-white/5 rounded" />
-                  </div>
-                ))}
-              </div>
-            ) : myPresales.length === 0 ? (
-              <div className="card text-center py-14">
-                <p className="text-gray-300 mb-1">No presales yet</p>
-                <p className="text-gray-500 text-sm mb-5">
-                  Configure your first presale to share with your community.
-                </p>
-                <button onClick={() => setTab('create')} className="btn-primary">
-                  Create your first presale
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {myPresales.map((p) => (
-                  <ManageCard
-                    key={p.id}
-                    presale={p}
-                    onWithdraw={handleWithdraw}
-                    txLoading={txLoading}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
-    </Layout>
+    </DashboardLayout>
   );
 }
 
+// Inner helper ManageCard for dashboard list items
 const ManageCard: React.FC<{
   presale: MyPresale;
   onWithdraw: (id: number) => void;
@@ -655,80 +309,63 @@ const ManageCard: React.FC<{
   const [fundOpen, setFundOpen] = useState(false);
 
   return (
-    <div className="card space-y-4">
+    <div className="card p-5 space-y-4">
       <div className="flex justify-between items-start gap-3">
-        <div className="min-w-0">
-          <h3 className="font-semibold">
-            {presale.tokenName || 'Unknown'}
-            {presale.tokenSymbol && (
-              <span className="text-gray-500 font-normal ml-1.5 text-sm">
-                {presale.tokenSymbol}
-              </span>
-            )}
-          </h3>
-          <div className="text-xs text-gray-500 mt-1">
-            Presale #{presale.id} · <AddressLink address={presale.tokenAddress} variant="token" />
-          </div>
+        <div>
+          <h4 className="font-semibold text-white">
+            {presale.tokenName} <span className="text-xs text-ink-400 font-normal">({presale.tokenSymbol})</span>
+          </h4>
+          <p className="text-[10px] text-ink-500 font-mono mt-1">Presale #{presale.id} · {presale.tokenAddress}</p>
         </div>
-        <div className="flex flex-col items-end gap-1.5">
-          <StatusBadge status={status} />
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <StatusBadge status={status === 'active' ? 'live' : status === 'finalized' ? 'ended' : status} />
           <FundingBadge status={funding.status} loading={funding.loading} />
         </div>
       </div>
 
-      <div>
-        <div className="flex justify-between text-xs text-gray-400 mb-1">
+      <div className="space-y-2">
+        <div className="flex justify-between text-xs text-ink-400 font-medium">
           <span>{pct.toFixed(1)}% raised</span>
-          <span className="text-gray-300 tabular-nums">
-            {formatBnb(raisedBnb)} / {formatBnb(hardcapBnb)} BNB
-          </span>
+          <span className="text-white font-mono">{formatBnb(raisedBnb)} / {formatBnb(hardcapBnb)} BNB</span>
         </div>
-        <ProgressBar raised={presale.totalRaised} hardcap={presale.hardcap} size="sm" />
-        <p className="text-xs text-gray-500 mt-1.5">
-          Softcap {formatBnb(softcapBnb)} BNB {reached && '· reached'}
-        </p>
+        <ProgressBar value={presale.totalRaised} max={presale.hardcap} softCap={presale.softcap} showMarker={false} />
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        <Link href={`/presale/${presale.id}`} className="btn-secondary flex-1 justify-center">
-          View
+      <div className="flex gap-2 flex-wrap pt-2">
+        <Link href={`/presale/${presale.id}`} className="btn-secondary text-xs px-4 py-2 flex-1 justify-center">
+          View details
         </Link>
         {!presale.isFinalized && funding.status !== 'funded' && (
-          <button
-            onClick={() => setFundOpen((o) => !o)}
-            className={`flex-1 justify-center ${
-              funding.status === 'unfunded' ? 'btn-warning' : 'btn-secondary'
-            }`}
+          <Button
+            variant="secondary"
+            onClick={() => setFundOpen(!fundOpen)}
+            className="text-xs px-4 py-2 flex-1 justify-center"
           >
-            <Icon name={fundOpen ? 'close' : 'plus'} size={14} />
-            {fundOpen ? 'Close funding' : 'Fund presale'}
-          </button>
+            {fundOpen ? 'Close Deposit' : 'Deposit Tokens'}
+          </Button>
         )}
         {status === 'ended' && reached && !presale.isFinalized && (
-          <button
+          <Button
+            variant="primary"
             onClick={() => onWithdraw(presale.id)}
             disabled={txLoading}
-            className="btn-warning flex-1 justify-center"
+            className="text-xs px-4 py-2 flex-1 justify-center font-bold"
           >
-            {txLoading ? (
-              <>
-                <Icon name="spinner" size={14} /> Processing…
-              </>
-            ) : (
-              'Withdraw funds'
-            )}
-          </button>
+            Withdraw BNB
+          </Button>
         )}
       </div>
 
       {fundOpen && (
-        <FundingPanel
-          presaleId={presale.id}
-          tokenAddress={presale.tokenAddress}
-          tokenSymbol={presale.tokenSymbol}
-          isOwner
-          className="mt-2"
-        />
+        <div className="pt-2 border-t border-white/5 mt-2">
+          <FundingPanel
+            presaleId={presale.id}
+            tokenAddress={presale.tokenAddress}
+            tokenSymbol={presale.tokenSymbol}
+            isOwner
+            onChange={() => setFundOpen(false)}
+          />
+        </div>
       )}
     </div>
   );
