@@ -23,6 +23,11 @@ const {
   getPaymentStorage,
   resetPaymentStorageForTests,
 } = require('../src/lib/server/payments/storage.ts');
+const {
+  getDatabaseHostType,
+  getPaymentStorageDiagnosticCode,
+  getPaymentStorageSafeError,
+} = require('../src/lib/server/payments/diagnostics.ts');
 const { MockPaymentProvider, createMockPaymentSignature } = require('../src/lib/server/payments/mockProvider.ts');
 
 const WALLET = '0x1111111111111111111111111111111111111111';
@@ -287,6 +292,45 @@ test('database adapter methods fail clearly without DATABASE_URL', async () => {
 
   if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = previousDatabaseUrl;
+});
+
+test('database host classification is safe and specific', () => {
+  assert.equal(getDatabaseHostType(undefined), 'missing');
+  assert.equal(
+    getDatabaseHostType('postgresql://user:pass@aws-0-ap-south-1.pooler.supabase.com:6543/postgres'),
+    'pooler',
+  );
+  assert.equal(
+    getDatabaseHostType('postgresql://user:pass@db.project.supabase.co:5432/postgres'),
+    'direct-supabase',
+  );
+  assert.equal(
+    getDatabaseHostType('postgresql://user:pass@localhost:5432/postgres'),
+    'other',
+  );
+});
+
+test('diagnostic error codes stay safe and stable', () => {
+  assert.equal(
+    getPaymentStorageDiagnosticCode(new Error('DATABASE_URL is required when PAYMENT_STORAGE=database.')),
+    'DATABASE_URL_MISSING',
+  );
+  assert.equal(
+    getPaymentStorageDiagnosticCode(new Error('PAYMENT_STORAGE=database is required in production.')),
+    'PAYMENT_STORAGE_MISSING',
+  );
+  assert.equal(
+    getPaymentStorageDiagnosticCode({ code: 'P1001', message: 'Cannot reach database server.' }),
+    'DB_UNREACHABLE',
+  );
+  assert.equal(
+    getPaymentStorageDiagnosticCode({ code: 'P2021', message: 'The table does not exist.' }),
+    'PRISMA_TABLE_MISSING',
+  );
+  assert.equal(
+    getPaymentStorageSafeError('PRISMA_CLIENT_ERROR'),
+    'Prisma client failed to load.',
+  );
 });
 
 test('requireCreatorAccess rejects unpaid wallet', async () => {

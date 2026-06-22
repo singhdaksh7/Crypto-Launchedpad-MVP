@@ -8,6 +8,10 @@ import {
 } from '@/lib/server/session';
 import { isExempt, isKycVerified, siweMessage } from '@/lib/server/access';
 import { getLaunchAccess } from '@/lib/server/payments/service';
+import {
+  getPaymentStorageDiagnosticCode,
+  getPaymentStorageSafeError,
+} from '@/lib/server/payments/diagnostics';
 import type { AccessResponse, VerifyRequest } from '@/lib/access';
 
 export default async function handler(
@@ -94,9 +98,17 @@ export default async function handler(
       /database_url|payment_storage|prisma|payment storage/i.test(errMsg);
       
     if (isStorageError) {
+      const diagnosticCode = getPaymentStorageDiagnosticCode(err);
+      console.error(`[Verify API] ${diagnosticCode}`);
       return res.status(500).json({ 
         error: 'Server payment storage is not configured. Please contact support.' 
       });
+    }
+
+    const fallbackCode = getPaymentStorageDiagnosticCode(err);
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`[Verify API] ${fallbackCode}`);
+      return res.status(500).json({ error: getPaymentStorageSafeError(fallbackCode) });
     }
 
     return res.status(500).json({ error: errMsg || 'Verification failed' });
