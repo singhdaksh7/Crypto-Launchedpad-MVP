@@ -3,6 +3,7 @@ import type { AppProps } from 'next/app';
 import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { QueryClient, QueryClientProvider } from 'react-query';
+import { initWalletDiscovery } from '@/lib/wallets';
 import '../styles/globals.css';
 
 const inter = Inter({
@@ -24,6 +25,10 @@ const queryClient = new QueryClient({
 });
 
 export default function App({ Component, pageProps }: AppProps) {
+  React.useEffect(() => {
+    initWalletDiscovery();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <div className={`${inter.variable} font-sans`}>

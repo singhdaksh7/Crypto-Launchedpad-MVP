@@ -34,11 +34,25 @@ export const WalletPicker: React.FC<WalletPickerProps> = ({
 }) => {
   const { isConnecting, lastWalletId } = useWeb3Store();
   const [busyId, setBusyId] = useState<WalletId | null>(null);
+  const [tick, setTick] = useState(0);
   const wcConfigured = isWalletConnectConfigured();
+
+  useEffect(() => {
+    if (!open) return;
+    const update = () => setTick((t) => t + 1);
+    window.addEventListener('eip6963:providersChanged', update);
+    window.addEventListener('wallet-detected', update);
+    return () => {
+      window.removeEventListener('eip6963:providersChanged', update);
+      window.removeEventListener('wallet-detected', update);
+    };
+  }, [open]);
 
   // Recompute rows each open so detection re-runs (extensions can be installed
   // mid-session; SSR also returns undefined for `window` on first render).
   const rows = useMemo<WalletRow[]>(() => {
+    // Reference tick to trigger recomputations upon provider detection events
+    const _ = tick;
     if (!open) return [];
     const mobile = isMobile();
     const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
@@ -75,7 +89,7 @@ export const WalletPicker: React.FC<WalletPickerProps> = ({
         installUrl: meta.installUrl,
       };
     });
-  }, [open, wcConfigured]);
+  }, [open, wcConfigured, tick]);
 
   useEffect(() => {
     if (!open) return;

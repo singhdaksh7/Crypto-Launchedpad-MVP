@@ -18,19 +18,151 @@ export interface WalletMeta {
 
 const isClient = () => typeof window !== 'undefined';
 
-/**
- * Picks the matching provider out of `window.ethereum.providers` (EIP-5749 style
- * multi-injection used when several wallet extensions are installed) or the
- * single `window.ethereum` if it matches the predicate.
- */
-function pickInjected(predicate: (p: any) => boolean): any | undefined {
+export interface EIP6963ProviderDetail {
+  info: {
+    uuid: string;
+    name: string;
+    icon: string;
+    rdns: string;
+  };
+  provider: any;
+}
+
+// Global registry of EIP-6963 announced providers
+let discoveredProviders: EIP6963ProviderDetail[] = [];
+let discoveryInitialized = false;
+
+export function initWalletDiscovery() {
+  if (!isClient() || discoveryInitialized) return;
+  discoveryInitialized = true;
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Wallet Discovery] Initializing EIP-6963 provider announcements listener...');
+  }
+
+  const handleAnnounce = (event: any) => {
+    const detail = event.detail as EIP6963ProviderDetail;
+    if (!detail || !detail.info || !detail.provider) return;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Wallet Discovery] Discovered wallet: ${detail.info.name} (${detail.info.rdns})`);
+    }
+
+    if (!discoveredProviders.some((p) => p.info.uuid === detail.info.uuid)) {
+      discoveredProviders.push(detail);
+      // Dispatch events so components re-evaluate detection states
+      window.dispatchEvent(new CustomEvent('eip6963:providersChanged'));
+      window.dispatchEvent(new CustomEvent('wallet-detected'));
+    }
+  };
+
+  window.addEventListener('eip6963:announceProvider', handleAnnounce);
+
+  // Request providers immediately
+  window.dispatchEvent(new CustomEvent('eip6963:requestProvider'));
+
+  // Request again after slight delays to handle async load differences
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('eip6963:requestProvider'));
+  }, 100);
+  setTimeout(() => {
+    window.dispatchEvent(new CustomEvent('eip6963:requestProvider'));
+  }, 500);
+}
+
+export function getDiscoveredProviders(): EIP6963ProviderDetail[] {
+  return discoveredProviders;
+}
+
+export function getInjectedMetaMaskProvider(): any | undefined {
   if (!isClient()) return undefined;
+
+  // 1. Try EIP-6963 announced providers first
+  const eipMatch = discoveredProviders.find(
+    (p) => p.info.rdns === 'io.metamask' || p.info.name.toLowerCase().includes('metamask'),
+  );
+  if (eipMatch) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Wallet Detection] MetaMask detected via EIP-6963 announcement.');
+    }
+    return eipMatch.provider;
+  }
+
+  // 2. Fallback to window.ethereum check
   const eth: any = (window as any).ethereum;
   if (!eth) return undefined;
+
+  // 3. Try window.ethereum.providers array (multi-injected style)
+  if (Array.isArray(eth.providers)) {
+    const match = eth.providers.find(
+      (p) => p.isMetaMask && !p.isCoinbaseWallet && !p.isTrust && !p.isTrustWallet,
+    );
+    if (match) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Wallet Detection] MetaMask detected via window.ethereum.providers list.');
+      }
+      return match;
+    }
+    const fallbackMatch = eth.providers.find((p) => p.isMetaMask);
+    if (fallbackMatch) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Wallet Detection] MetaMask detected via window.ethereum.providers fallback list.');
+      }
+      return fallbackMatch;
+    }
+  }
+
+  // 4. Try window.ethereum directly
+  if (eth.isMetaMask && !eth.isCoinbaseWallet && !eth.isTrust && !eth.isTrustWallet) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Wallet Detection] MetaMask detected directly on window.ethereum object.');
+    }
+    return eth;
+  }
+  if (eth.isMetaMask) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Wallet Detection] MetaMask detected directly on window.ethereum object (fallback check).');
+    }
+    return eth;
+  }
+
+  return undefined;
+}
+
+export function hasMetaMaskProvider(): boolean {
+  return !!getInjectedMetaMaskProvider();
+}
+
+export async function requestWalletAccounts(provider: any): Promise<string[]> {
+  if (!provider || typeof provider.request !== 'function') {
+    throw new Error('Wallet provider lacks standard .request function.');
+  }
+  return provider.request({ method: 'eth_requestAccounts' });
+}
+
+/**
+ * Picks the matching provider out of EIP-6963 discovery, `window.ethereum.providers`,
+ * or the single `window.ethereum` if it matches the predicate.
+ */
+function pickInjected(predicate: (p: any) => boolean, rdns?: string): any | undefined {
+  if (!isClient()) return undefined;
+
+  // 1. Try EIP-6963 announced providers first
+  if (rdns) {
+    const eipMatch = discoveredProviders.find((p) => p.info.rdns === rdns);
+    if (eipMatch) return eipMatch.provider;
+  }
+
+  const eth: any = (window as any).ethereum;
+  if (!eth) return undefined;
+
+  // 2. Check window.ethereum.providers list
   if (Array.isArray(eth.providers)) {
     const match = eth.providers.find(predicate);
     if (match) return match;
   }
+
+  // 3. Check window.ethereum directly
   return predicate(eth) ? eth : undefined;
 }
 
@@ -87,10 +219,7 @@ export const WALLETS: WalletMeta[] = [
   {
     id: 'metamask',
     label: 'MetaMask',
-    detect: () =>
-      pickInjected(
-        (p) => p.isMetaMask && !p.isCoinbaseWallet && !p.isTrust && !p.isTrustWallet,
-      ),
+    detect: () => getInjectedMetaMaskProvider(),
     installUrl: 'https://metamask.io/download',
     mobileDeeplink: (url) => `https://metamask.app.link/dapp/${cleanUrl(url)}`,
     icon: MetaMaskIcon,
@@ -98,7 +227,7 @@ export const WALLETS: WalletMeta[] = [
   {
     id: 'trust',
     label: 'Trust Wallet',
-    detect: () => pickInjected((p) => p.isTrust || p.isTrustWallet),
+    detect: () => pickInjected((p) => p.isTrust || p.isTrustWallet, 'app.trustwallet'),
     installUrl: 'https://trustwallet.com/browser-extension',
     mobileDeeplink: (url) =>
       `https://link.trustwallet.com/open_url?coin_id=20000714&url=${encodeURIComponent(url)}`,
@@ -107,7 +236,7 @@ export const WALLETS: WalletMeta[] = [
   {
     id: 'coinbase',
     label: 'Coinbase Wallet',
-    detect: () => pickInjected((p) => p.isCoinbaseWallet),
+    detect: () => pickInjected((p) => p.isCoinbaseWallet, 'com.coinbase.wallet'),
     installUrl: 'https://www.coinbase.com/wallet/downloads',
     mobileDeeplink: (url) => `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(url)}`,
     icon: CoinbaseIcon,

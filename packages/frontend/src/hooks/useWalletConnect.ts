@@ -3,7 +3,13 @@ import { ethers } from 'ethers';
 import { useWeb3Store } from '@/store';
 import { getChainId } from '@/lib/web3';
 import { switchOrAddChain } from '@/lib/chain';
-import { WALLETS, getWalletMeta, type WalletId } from '@/lib/wallets';
+import {
+  WALLETS,
+  getWalletMeta,
+  type WalletId,
+  requestWalletAccounts,
+  initWalletDiscovery,
+} from '@/lib/wallets';
 import { getWalletConnectProvider } from '@/lib/walletConnect';
 
 const STORAGE_KEY = 'lastWalletId';
@@ -90,7 +96,7 @@ export const useWalletConnect = () => {
               `${meta?.label ?? 'Wallet'} not detected. Install the extension or use WalletConnect.`,
             );
           }
-          await inj.request({ method: 'eth_requestAccounts' });
+          await requestWalletAccounts(inj);
           raw = inj;
         }
 
@@ -124,6 +130,7 @@ export const useWalletConnect = () => {
   // Auto-reconnect on mount, branching on the persisted wallet id.
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    initWalletDiscovery();
     let cancelled = false;
     const lastId = localStorage.getItem(STORAGE_KEY) as WalletId | null;
     if (!lastId) return;
