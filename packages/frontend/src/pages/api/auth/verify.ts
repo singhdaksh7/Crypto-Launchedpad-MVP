@@ -84,9 +84,21 @@ export default async function handler(
       paidAt: launchAccess.paidAt,
     });
   } catch (err: any) {
+    const errMsg = String(err?.message || '');
     if (process.env.NODE_ENV === 'development') {
       console.error('[Verify API] Uncaught handler exception:', err);
     }
-    return res.status(500).json({ error: err?.message || 'Verification failed' });
+    
+    // Check if the error is database or configuration related
+    const isStorageError = 
+      /database_url|payment_storage|prisma|payment storage/i.test(errMsg);
+      
+    if (isStorageError) {
+      return res.status(500).json({ 
+        error: 'Server payment storage is not configured. Please contact support.' 
+      });
+    }
+
+    return res.status(500).json({ error: errMsg || 'Verification failed' });
   }
 }
