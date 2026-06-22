@@ -13,6 +13,7 @@ import { txUrl } from '@/lib/links';
 import { Icon } from '@/components/ui/Icon';
 import { AlertBanner, FormInput, DateTimeInput, KeyValueList, Stepper, Button } from '@/components/ui';
 import { AccessGate } from '@/components/AccessGate';
+import { CreatorSafetyChecklist } from '@/components/CreatorSafetyChecklist';
 import { FundingPanel } from '@/components/FundingPanel';
 
 interface FormData {
@@ -232,6 +233,7 @@ export default function CreateLaunchpad() {
               {currentStep < 3 && (
                 <Stepper steps={['Configure', 'Review', 'Launch']} current={currentStep} />
               )}
+              <CreatorSafetyChecklist mode="presale" />
 
               {/* Step 0: Input fields */}
               {currentStep === 0 && (

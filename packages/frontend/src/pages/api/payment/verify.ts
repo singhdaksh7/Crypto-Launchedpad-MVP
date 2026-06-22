@@ -1,7 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { issueSession, readSession } from '@/lib/server/session';
 import { isExempt, isKycVerified } from '@/lib/server/access';
+import { getPaymentStorageDiagnosticCode } from '@/lib/server/payments/diagnostics';
 import { verifyLaunchAccessPayment } from '@/lib/server/payments/service';
+import { logDiagnosticCode, toJsonError } from '@/lib/server/logging';
 import type { AccessResponse, PaymentVerifyRequest } from '@/lib/access';
 
 export default async function handler(
@@ -10,12 +12,12 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json(toJsonError('Method not allowed'));
   }
 
   const session = readSession(req);
   if (!session) {
-    return res.status(401).json({ error: 'Verify your wallet first.' });
+    return res.status(401).json(toJsonError('Verify your wallet first.'));
   }
 
   const body = req.body as PaymentVerifyRequest;
@@ -35,13 +37,13 @@ export default async function handler(
     : undefined;
 
   if (!/^0x[0-9a-f]{40}$/.test(walletAddress)) {
-    return res.status(400).json({ error: 'Invalid wallet address.' });
+    return res.status(400).json(toJsonError('Invalid wallet address.'));
   }
   if (walletAddress !== session.address) {
-    return res.status(403).json({ error: 'Payment wallet does not match verified session.' });
+    return res.status(403).json(toJsonError('Payment wallet does not match verified session.'));
   }
   if (!providerOrderId || (!providerPaymentId && !providerTransactionId)) {
-    return res.status(400).json({ error: 'Missing payment fields.' });
+    return res.status(400).json(toJsonError('Missing payment fields.'));
   }
 
   try {
@@ -73,6 +75,9 @@ export default async function handler(
       paidAt: access.paidAt,
     });
   } catch (err: any) {
-    return res.status(400).json({ error: err?.message || 'Payment verification failed.' });
+    if (process.env.NODE_ENV === 'production') {
+      logDiagnosticCode('PAYMENT_VERIFY', getPaymentStorageDiagnosticCode(err));
+    }
+    return res.status(400).json(toJsonError(err?.message || 'Payment verification failed.'));
   }
 }

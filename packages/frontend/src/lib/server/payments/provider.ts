@@ -7,6 +7,10 @@ export function getConfiguredPaymentProviderName(): PaymentProviderName {
   return raw === 'smepay' ? 'smepay' : 'mock';
 }
 
+export function isMockPaymentProvider(): boolean {
+  return getConfiguredPaymentProviderName() === 'mock';
+}
+
 export function getPaymentProvider(): PaymentProvider {
   const name = getConfiguredPaymentProviderName();
   if (name === 'smepay') return new SmepayPaymentProvider();

@@ -11,6 +11,7 @@ interface UseAccessState {
   reason?: AccessReason;
   /** Address last seen by the server for this session, lowercase. */
   serverAddress?: string;
+  configuredPaymentProvider?: string;
   exempt: boolean;
   paid: boolean;
   hasLaunchAccess: boolean;
@@ -45,6 +46,7 @@ export function useAccess() {
         unlocked: !!data.unlocked,
         reason: data.reason,
         serverAddress: data.address,
+        configuredPaymentProvider: data.configuredPaymentProvider,
         exempt: !!data.exempt,
         paid: !!data.paid,
         hasLaunchAccess: !!data.hasLaunchAccess,
@@ -148,5 +150,6 @@ export function useAccess() {
       !!account &&
       !!state.serverAddress &&
       state.serverAddress === account.toLowerCase(),
+    mockPaymentMode: state.configuredPaymentProvider === 'mock',
   };
 }

@@ -53,6 +53,21 @@ export const Footer: React.FC = () => {
                   Launch dashboard
                 </Link>
               </li>
+              <li>
+                <Link href="/terms" className="text-ink-400 hover:text-white transition">
+                  Terms
+                </Link>
+              </li>
+              <li>
+                <Link href="/privacy" className="text-ink-400 hover:text-white transition">
+                  Privacy
+                </Link>
+              </li>
+              <li>
+                <Link href="/risk-disclosure" className="text-ink-400 hover:text-white transition">
+                  Risk Disclosure
+                </Link>
+              </li>
             </ul>
           </div>
 
@@ -105,10 +120,23 @@ export const Footer: React.FC = () => {
         {/* Bottom Bar */}
         <div className="border-t border-white/5 pt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <p className="text-xs text-ink-500">© {year} LaunchBNB. All rights reserved.</p>
-          <p className="text-xs text-ink-500 max-w-md sm:text-right">
-            Token sales carry significant risk. Always verify the contract, do your
-            own research, and never invest more than you can afford to lose. No returns are guaranteed.
-          </p>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-3 text-xs text-ink-500">
+              <Link href="/terms" className="hover:text-white transition">
+                Terms
+              </Link>
+              <Link href="/privacy" className="hover:text-white transition">
+                Privacy
+              </Link>
+              <Link href="/risk-disclosure" className="hover:text-white transition">
+                Risk Disclosure
+              </Link>
+            </div>
+            <p className="text-xs text-ink-500 max-w-md sm:text-right">
+              Token sales carry significant risk. Always verify the contract, do your
+              own research, and never invest more than you can afford to lose. No returns are guaranteed.
+            </p>
+          </div>
         </div>
       </div>
     </footer>

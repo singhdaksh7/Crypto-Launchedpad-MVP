@@ -12,6 +12,7 @@ import {
   getPaymentStorageDiagnosticCode,
   getPaymentStorageSafeError,
 } from '@/lib/server/payments/diagnostics';
+import { logDiagnosticCode, toJsonError } from '@/lib/server/logging';
 import type { AccessResponse, VerifyRequest } from '@/lib/access';
 
 export default async function handler(
@@ -47,15 +48,19 @@ export default async function handler(
     } catch (err: any) {
       if (process.env.NODE_ENV === 'development') {
         console.error('[Verify API] verifyMessage failed:', err);
+      } else {
+        logDiagnosticCode('AUTH_VERIFY', 'AUTH_SIGNATURE_INVALID');
       }
-      return res.status(400).json({ error: 'Could not verify signature format.' });
+      return res.status(400).json(toJsonError('Could not verify signature format.'));
     }
 
     if (recovered !== address) {
       if (process.env.NODE_ENV === 'development') {
         console.warn(`[Verify API] Address mismatch: recovered=${recovered} expected=${address}`);
+      } else {
+        logDiagnosticCode('AUTH_VERIFY', 'AUTH_ADDRESS_MISMATCH');
       }
-      return res.status(401).json({ error: 'Wallet address mismatch. The signed address does not match the active wallet.' });
+      return res.status(401).json(toJsonError('Wallet address mismatch. The signed address does not match the active wallet.'));
     }
 
     // Single-use nonce — burn it after successful verify.
@@ -99,18 +104,18 @@ export default async function handler(
       
     if (isStorageError) {
       const diagnosticCode = getPaymentStorageDiagnosticCode(err);
-      console.error(`[Verify API] ${diagnosticCode}`);
-      return res.status(500).json({ 
-        error: 'Server payment storage is not configured. Please contact support.' 
-      });
+      logDiagnosticCode('AUTH_VERIFY', diagnosticCode);
+      return res.status(500).json(
+        toJsonError('Server payment storage is not configured. Please contact support.'),
+      );
     }
 
     const fallbackCode = getPaymentStorageDiagnosticCode(err);
     if (process.env.NODE_ENV === 'production') {
-      console.error(`[Verify API] ${fallbackCode}`);
-      return res.status(500).json({ error: getPaymentStorageSafeError(fallbackCode) });
+      logDiagnosticCode('AUTH_VERIFY', fallbackCode);
+      return res.status(500).json(toJsonError(getPaymentStorageSafeError(fallbackCode)));
     }
 
-    return res.status(500).json({ error: errMsg || 'Verification failed' });
+    return res.status(500).json(toJsonError(errMsg || 'Verification failed'));
   }
 }

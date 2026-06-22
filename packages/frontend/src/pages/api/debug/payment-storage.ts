@@ -1,20 +1,22 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import {
   collectPaymentStorageDiagnostics,
+  isPaymentStorageDebugEnabled,
   type PaymentStorageDiagnostics,
 } from '@/lib/server/payments/diagnostics';
+import { toJsonError } from '@/lib/server/logging';
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<PaymentStorageDiagnostics | { error: string }>,
 ) {
-  if (process.env.DEBUG_PAYMENT_STORAGE !== 'true') {
-    return res.status(404).json({ error: 'Not enabled' });
+  if (!isPaymentStorageDebugEnabled()) {
+    return res.status(404).json(toJsonError('Not enabled'));
   }
 
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json(toJsonError('Method not allowed'));
   }
 
   try {

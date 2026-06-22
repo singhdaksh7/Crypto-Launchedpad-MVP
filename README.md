@@ -130,6 +130,8 @@ npm run test
 Creator launch access uses a storage adapter selected by `PAYMENT_STORAGE`.
 Local development may use `PAYMENT_STORAGE=memory`, but production builds must
 set `PAYMENT_STORAGE=database` and `DATABASE_URL` for PostgreSQL-backed storage.
+For Vercel + Supabase, use the Supabase pooler connection string instead of a
+direct database host.
 
 Useful Prisma commands:
 
@@ -143,6 +145,9 @@ npx prisma migrate dev
 Use `npx prisma db push` only for disposable development databases. For shared
 or production databases, review and run the checked-in migration under
 `packages/frontend/prisma/migrations/`.
+
+`DEBUG_PAYMENT_STORAGE` is a temporary diagnostics switch only. Keep it
+disabled by default and turn it off again immediately after debugging.
 
 ## Smart Contracts
 
@@ -258,10 +263,11 @@ Apply to **Production, Preview, Development**.
 | `PAYMENT_PROVIDER` | `mock` for local/testnet until SMEPay is configured |
 | `PAYMENT_AMOUNT_INR` | `1000` |
 | `PAYMENT_STORAGE` | `database` for deployed environments; `memory` is local/dev only |
-| `DATABASE_URL` | PostgreSQL connection string for Prisma payment/access storage |
+| `DATABASE_URL` | Supabase pooler or other PostgreSQL connection string for Prisma payment/access storage |
 | `MOCK_PAYMENT_SECRET` | random test secret for mock-provider verification |
-| `SMEPAY_MERCHANT_ID` | empty until SMEPay credentials are available |
-| `SMEPAY_SECRET` | empty until SMEPay credentials are available |
+| `DEBUG_PAYMENT_STORAGE` | `false` by default; temporary troubleshooting only |
+| `SMEPAY_MERCHANT_ID` | empty until SMEPay credentials and endpoint docs are available |
+| `SMEPAY_SECRET` | empty until SMEPay credentials and endpoint docs are available |
 | `SMEPAY_WEBHOOK_SECRET` | empty until SMEPay webhook docs are available |
 
 ### Env vars — mainnet project (new production project)
@@ -284,13 +290,14 @@ project for testnet previews).
 | `JWT_SECRET` | a fresh 32+ byte random string (do **not** reuse the testnet secret) |
 | `EXEMPT_ADDRESSES` | comma-separated, lowercase mainnet addresses |
 | `KYC_VERIFIED_ADDRESSES` | comma-separated, lowercase mainnet addresses |
-| `PAYMENT_PROVIDER` | `smepay` after SMEPay API credentials/docs are wired |
+| `PAYMENT_PROVIDER` | keep `mock` until SMEPay API credentials and endpoint docs are wired |
 | `PAYMENT_AMOUNT_INR` | `1000` |
 | `PAYMENT_STORAGE` | `database` — production must use persistent storage |
-| `DATABASE_URL` | PostgreSQL connection string for Prisma payment/access storage |
-| `SMEPAY_MERCHANT_ID` | live merchant id from SMEPay |
-| `SMEPAY_SECRET` | live server-side SMEPay secret |
-| `SMEPAY_WEBHOOK_SECRET` | live webhook checksum/signature secret once documented |
+| `DATABASE_URL` | Supabase pooler or other PostgreSQL connection string for Prisma payment/access storage |
+| `DEBUG_PAYMENT_STORAGE` | `false` in production except brief debugging windows |
+| `SMEPAY_MERCHANT_ID` | leave empty until SMEPay docs and real integration work are complete |
+| `SMEPAY_SECRET` | leave empty until SMEPay docs and real integration work are complete |
+| `SMEPAY_WEBHOOK_SECRET` | leave empty until SMEPay docs and real integration work are complete |
 
 Payment/access storage note: the built-in memory adapter is only for local
 development because it resets on server restart and is not reliable on Vercel

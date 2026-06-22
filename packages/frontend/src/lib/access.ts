@@ -19,6 +19,7 @@ export interface AccessResponse {
   unlocked: boolean;
   reason?: 'exempt' | 'paid';
   address?: string;
+  configuredPaymentProvider?: string;
   /** Whether the address has launch access through the server-side payment store. */
   hasLaunchAccess?: boolean;
   /** Backwards-compatible alias for launch access. */

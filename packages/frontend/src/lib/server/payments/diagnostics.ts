@@ -29,6 +29,10 @@ export interface PaymentStorageDiagnostics {
   safeError: string;
 }
 
+export function isPaymentStorageDebugEnabled(): boolean {
+  return process.env.DEBUG_PAYMENT_STORAGE === 'true';
+}
+
 export function getPaymentStorageDiagnosticCode(error: unknown): PaymentStorageDiagnosticCode {
   const message = String((error as any)?.message || '').toLowerCase();
   const code = String((error as any)?.code || '').toUpperCase();

@@ -1,7 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { readSession } from '@/lib/server/session';
 import { isExempt } from '@/lib/server/access';
+import { getPaymentStorageDiagnosticCode } from '@/lib/server/payments/diagnostics';
 import { createLaunchAccessOrder } from '@/lib/server/payments/service';
+import { logDiagnosticCode, toJsonError } from '@/lib/server/logging';
 import type { OrderResponse } from '@/lib/access';
 
 export default async function handler(
@@ -10,29 +12,32 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json(toJsonError('Method not allowed'));
   }
 
   const session = readSession(req);
   if (!session) {
-    return res.status(401).json({ error: 'Verify your wallet first.' });
+    return res.status(401).json(toJsonError('Verify your wallet first.'));
   }
 
   const walletAddress = String(req.body?.walletAddress || '').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(walletAddress)) {
-    return res.status(400).json({ error: 'Invalid wallet address.' });
+    return res.status(400).json(toJsonError('Invalid wallet address.'));
   }
   if (walletAddress !== session.address) {
-    return res.status(403).json({ error: 'Payment wallet does not match verified session.' });
+    return res.status(403).json(toJsonError('Payment wallet does not match verified session.'));
   }
   if (isExempt(session.address)) {
-    return res.status(409).json({ error: 'Access already granted for this wallet.' });
+    return res.status(409).json(toJsonError('Access already granted for this wallet.'));
   }
 
   try {
     const order = await createLaunchAccessOrder(walletAddress);
     return res.status(200).json(order);
   } catch (err: any) {
-    return res.status(400).json({ error: err?.message || 'Failed to create payment order.' });
+    if (process.env.NODE_ENV === 'production') {
+      logDiagnosticCode('PAYMENT_CREATE_ORDER', getPaymentStorageDiagnosticCode(err));
+    }
+    return res.status(400).json(toJsonError(err?.message || 'Failed to create payment order.'));
   }
 }

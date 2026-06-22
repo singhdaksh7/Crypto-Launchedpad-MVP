@@ -27,6 +27,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({
   const [paymentStep, setPaymentStep] = useState<PaymentStep>('idle');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const handlerLock = useRef(false);
+  const isMockConfigured = access.mockPaymentMode;
 
   useEffect(() => {
     if (access.unlocked) {
@@ -139,7 +140,7 @@ export const AccessGate: React.FC<AccessGateProps> = ({
               <p className="font-medium">Pay the ₹1000 platform access fee</p>
               <p className="text-gray-500 text-xs">
                 The backend creates and verifies the payment through the configured
-                payment gateway.
+                provider. Demo payment mode may be active in staging.
               </p>
             </div>
           </li>
@@ -251,8 +252,14 @@ export const AccessGate: React.FC<AccessGateProps> = ({
       <h2 className="text-xl font-semibold mb-1">₹1000 platform access fee</h2>
       <p className="text-sm text-gray-400 mb-5">
         Creator access is approved only after the backend verifies a successful
-        INR payment from the configured payment gateway or SMEPay-compatible provider.
+        INR payment from the configured provider. Live money collection is not enabled when demo payment mode is active.
       </p>
+
+      {isMockConfigured && (
+        <Alert tone="warning" title="Demo payment mode" className="mb-4">
+          Mock payment verification is active for staging. Keep the ₹1000 creator access fee flow for testing, but do not treat this as a live payment checkout.
+        </Alert>
+      )}
 
       <div className="bg-surface-2 border border-white/5 rounded-lg p-4 mb-5">
         <div className="flex justify-between text-sm">
@@ -261,14 +268,14 @@ export const AccessGate: React.FC<AccessGateProps> = ({
         </div>
         <div className="flex justify-between text-xs text-gray-500 mt-1">
           <span>Billed once per creator wallet</span>
-          <span>{paymentOrder?.paymentProvider || 'Payment gateway'}</span>
+          <span>{paymentOrder?.paymentProvider || access.configuredPaymentProvider || 'Payment provider'}</span>
         </div>
       </div>
 
       {paymentOrder && (
         <Alert tone="info" className="mb-4" title="Payment pending">
           {isMock
-            ? 'Development provider is active. Complete the mock payment to test server-side verification.'
+            ? 'Demo payment mode is active. Complete the mock payment to test server-side verification without implying a live INR charge.'
             : 'Continue with the payment provider checkout, then return here for verification.'}
         </Alert>
       )}

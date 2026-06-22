@@ -11,6 +11,7 @@ import { txUrl } from '@/lib/links';
 import { Icon } from '@/components/ui/Icon';
 import { AlertBanner, FormInput, KeyValueList, Stepper, Button } from '@/components/ui';
 import { AccessGate } from '@/components/AccessGate';
+import { CreatorSafetyChecklist } from '@/components/CreatorSafetyChecklist';
 import { TokenPreviewCard } from '@/components/token/TokenPreviewCard';
 
 interface FormData {
@@ -150,6 +151,7 @@ export default function CreateToken() {
               {currentStep < 3 && (
                 <Stepper steps={['Details', 'Review', 'Deploy']} current={currentStep} />
               )}
+              <CreatorSafetyChecklist mode="token" />
 
               {/* Step 0: Input Form */}
               {currentStep === 0 && (

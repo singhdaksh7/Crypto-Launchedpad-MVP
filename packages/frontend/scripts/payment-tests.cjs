@@ -1,5 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const path = require('node:path');
+const Module = require('node:module');
 
 require('ts-node').register({
   transpileOnly: true,
@@ -8,6 +10,15 @@ require('ts-node').register({
     moduleResolution: 'node',
   },
 });
+
+const srcRoot = path.resolve(__dirname, '../src');
+const originalResolveFilename = Module._resolveFilename;
+Module._resolveFilename = function patchedResolveFilename(request, parent, isMain, options) {
+  if (request.startsWith('@/')) {
+    return originalResolveFilename.call(this, path.join(srcRoot, request.slice(2)), parent, isMain, options);
+  }
+  return originalResolveFilename.call(this, request, parent, isMain, options);
+};
 
 const {
   createLaunchAccessOrder,
@@ -27,11 +38,38 @@ const {
   getDatabaseHostType,
   getPaymentStorageDiagnosticCode,
   getPaymentStorageSafeError,
+  isPaymentStorageDebugEnabled,
 } = require('../src/lib/server/payments/diagnostics.ts');
+const debugPaymentStorageHandler = require('../src/pages/api/debug/payment-storage.ts').default;
+const paymentCreateOrderHandler = require('../src/pages/api/payment/create-order.ts').default;
+const paymentVerifyHandler = require('../src/pages/api/payment/verify.ts').default;
 const { MockPaymentProvider, createMockPaymentSignature } = require('../src/lib/server/payments/mockProvider.ts');
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const OTHER_WALLET = '0x2222222222222222222222222222222222222222';
+
+function createMockRes() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: undefined,
+    setHeader(name, value) {
+      this.headers[name] = value;
+      return this;
+    },
+    getHeader(name) {
+      return this.headers[name];
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    },
+  };
+}
 
 async function createFixture() {
   const storage = createMemoryPaymentStorage();
@@ -282,7 +320,7 @@ test('database storage selection requires DATABASE_URL', () => {
 
 test('database adapter methods fail clearly without DATABASE_URL', async () => {
   const previousDatabaseUrl = process.env.DATABASE_URL;
-  delete process.env.DATABASE_URL;
+  process.env.DATABASE_URL = '';
   const storage = createDatabasePaymentStorage();
 
   await assert.rejects(
@@ -331,6 +369,65 @@ test('diagnostic error codes stay safe and stable', () => {
     getPaymentStorageSafeError('PRISMA_CLIENT_ERROR'),
     'Prisma client failed to load.',
   );
+});
+
+test('diagnostics endpoint is disabled by default', async () => {
+  const previous = process.env.DEBUG_PAYMENT_STORAGE;
+  delete process.env.DEBUG_PAYMENT_STORAGE;
+
+  const req = { method: 'GET' };
+  const res = createMockRes();
+  await debugPaymentStorageHandler(req, res);
+
+  assert.equal(isPaymentStorageDebugEnabled(), false);
+  assert.equal(res.statusCode, 404);
+  assert.deepEqual(res.body, { error: 'Not enabled' });
+
+  if (previous === undefined) delete process.env.DEBUG_PAYMENT_STORAGE;
+  else process.env.DEBUG_PAYMENT_STORAGE = previous;
+});
+
+test('diagnostics endpoint is enabled only when DEBUG_PAYMENT_STORAGE=true', async () => {
+  const previousDebug = process.env.DEBUG_PAYMENT_STORAGE;
+  const previousStorage = process.env.PAYMENT_STORAGE;
+  const previousUrl = process.env.DATABASE_URL;
+  process.env.DEBUG_PAYMENT_STORAGE = 'true';
+  process.env.PAYMENT_STORAGE = 'database';
+  delete process.env.DATABASE_URL;
+
+  const req = { method: 'GET' };
+  const res = createMockRes();
+  await debugPaymentStorageHandler(req, res);
+
+  assert.equal(isPaymentStorageDebugEnabled(), true);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.hasDatabaseUrl, false);
+  assert.equal(res.body.safeError, 'Database URL is missing.');
+
+  if (previousDebug === undefined) delete process.env.DEBUG_PAYMENT_STORAGE;
+  else process.env.DEBUG_PAYMENT_STORAGE = previousDebug;
+  if (previousStorage === undefined) delete process.env.PAYMENT_STORAGE;
+  else process.env.PAYMENT_STORAGE = previousStorage;
+  if (previousUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousUrl;
+});
+
+test('payment create-order returns JSON error payloads', async () => {
+  const req = { method: 'POST', cookies: {}, body: { walletAddress: WALLET } };
+  const res = createMockRes();
+  await paymentCreateOrderHandler(req, res);
+
+  assert.equal(res.statusCode, 401);
+  assert.deepEqual(res.body, { error: 'Verify your wallet first.' });
+});
+
+test('payment verify returns JSON error payloads', async () => {
+  const req = { method: 'POST', cookies: {}, body: { walletAddress: WALLET } };
+  const res = createMockRes();
+  await paymentVerifyHandler(req, res);
+
+  assert.equal(res.statusCode, 401);
+  assert.deepEqual(res.body, { error: 'Verify your wallet first.' });
 });
 
 test('requireCreatorAccess rejects unpaid wallet', async () => {

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { readSession } from '@/lib/server/session';
 import { isExempt, isKycVerified } from '@/lib/server/access';
+import { getConfiguredPaymentProviderName } from '@/lib/server/payments/provider';
 import { getLaunchAccess } from '@/lib/server/payments/service';
 import type { AccessResponse } from '@/lib/access';
 
@@ -13,7 +14,10 @@ export default async function handler(
 
   const session = readSession(req);
   if (!session) {
-    return res.status(200).json({ unlocked: false });
+    return res.status(200).json({
+      unlocked: false,
+      configuredPaymentProvider: getConfiguredPaymentProviderName(),
+    });
   }
 
   // Re-evaluate exempt + kyc lists on every read so admins can flip env vars
@@ -31,6 +35,7 @@ export default async function handler(
         : 'paid'
       : undefined,
     address: session.address,
+    configuredPaymentProvider: getConfiguredPaymentProviderName(),
     exempt: currentlyExempt,
     paid: launchAccess.hasLaunchAccess,
     hasLaunchAccess: paymentSatisfied,
