@@ -10,24 +10,45 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
-          DEFAULT: '#00f7ff',
-          50: '#e0feff',
-          100: '#b8fdff',
-          400: '#22e2eb',
-          500: '#00f7ff',
-          600: '#00cdd6',
-          700: '#00a3ad',
+          DEFAULT: '#F0B90B',
+          50: '#FDF8E6',
+          100: '#FBF0C4',
+          400: '#F6DF85',
+          500: '#F0B90B',
+          600: '#CFA009',
+          700: '#9E7A07',
         },
-        secondary: {
-          DEFAULT: '#00bcd4',
-          500: '#00bcd4',
-          600: '#0097a7',
-        },
+        bnb: '#F0B90B',
+        'bnb-light': '#F8D446',
+        'bnb-text': '#F3C84B',
+        base: '#070A12',
         surface: {
-          DEFAULT: '#000000',
-          1: '#050505',
-          2: '#0a0a0a',
-          3: '#111111',
+          DEFAULT: '#0D1320',
+          1: '#0D1320',
+          2: '#121B2D',
+          3: '#18243C',
+        },
+        success: {
+          DEFAULT: '#10B981',
+          light: '#34D399',
+          text: '#6EE7B7',
+        },
+        danger: {
+          DEFAULT: '#EF4444',
+          light: '#F87171',
+          text: '#FCA5A5',
+        },
+        warning: {
+          DEFAULT: '#FBBF24',
+          text: '#FCD34D',
+        },
+        ink: {
+          100: '#F4F7FC',
+          200: '#EAF0FA',
+          300: '#D6DEEC',
+          400: '#9DAAC0',
+          500: '#7E8BA3',
+          600: '#5F6B82',
         },
       },
       fontFamily: {
@@ -38,11 +59,11 @@ const config: Config = {
         'grid-pattern':
           "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)",
         'brand-gradient':
-          'linear-gradient(135deg, #00f7ff 0%, #00bcd4 100%)',
+          'linear-gradient(135deg, #F8D446 0%, #F0B90B 100%)',
       },
       boxShadow: {
         soft: '0 1px 0 rgba(255,255,255,0.02) inset, 0 1px 2px rgba(0,0,0,0.8)',
-        glow: '0 0 0 1px rgba(0,247,255,0.3), 0 8px 24px -8px rgba(0,247,255,0.4)',
+        glow: '0 0 0 1px rgba(240,185,11,0.3), 0 8px 24px -8px rgba(240,185,11,0.4)',
       },
       animation: {
         'fade-in': 'fadeIn 0.25s ease-out',
