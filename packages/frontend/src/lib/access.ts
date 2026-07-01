@@ -29,6 +29,8 @@ export interface AccessResponse {
   kyc?: boolean;
   paymentProvider?: string;
   paidAt?: string;
+  /** True when the creator access gate is bypassed for testnet demo. */
+  bypassActive?: boolean;
 }
 
 export interface OrderResponse {

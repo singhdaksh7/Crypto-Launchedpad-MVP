@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { readSession } from '@/lib/server/session';
 import { isExempt, isKycVerified } from '@/lib/server/access';
 import { getConfiguredPaymentProviderName } from '@/lib/server/payments/provider';
-import { getLaunchAccess } from '@/lib/server/payments/service';
+import { getLaunchAccess, isCreatorAccessGateBypassed } from '@/lib/server/payments/service';
 import type { AccessResponse } from '@/lib/access';
 
 export default async function handler(
@@ -12,11 +12,14 @@ export default async function handler(
   // Disable any framework / CDN caching — this is per-user state.
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
+  const bypassActive = isCreatorAccessGateBypassed();
+
   const session = readSession(req);
   if (!session) {
     return res.status(200).json({
       unlocked: false,
       configuredPaymentProvider: getConfiguredPaymentProviderName(),
+      bypassActive,
     });
   }
 
@@ -42,5 +45,7 @@ export default async function handler(
     kyc: currentlyKyc,
     paymentProvider: currentlyExempt ? 'exempt' : launchAccess.paymentProvider,
     paidAt: launchAccess.paidAt,
+    bypassActive,
   });
 }
+

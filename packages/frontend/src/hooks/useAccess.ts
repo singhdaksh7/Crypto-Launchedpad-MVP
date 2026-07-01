@@ -18,6 +18,8 @@ interface UseAccessState {
   kyc: boolean;
   paymentProvider?: string;
   paidAt?: string;
+  /** True when the server has bypassed the creator access gate for testnet. */
+  bypassActive: boolean;
   error: string | null;
 }
 
@@ -28,6 +30,7 @@ const INITIAL: UseAccessState = {
   paid: false,
   hasLaunchAccess: false,
   kyc: false,
+  bypassActive: false,
   error: null,
 };
 
@@ -53,6 +56,7 @@ export function useAccess() {
         kyc: !!data.kyc,
         paymentProvider: data.paymentProvider,
         paidAt: data.paidAt,
+        bypassActive: !!data.bypassActive,
         error: null,
       });
     } catch (err: any) {

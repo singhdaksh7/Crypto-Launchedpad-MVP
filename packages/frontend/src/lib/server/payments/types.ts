@@ -1,4 +1,4 @@
-export type PaymentProviderName = 'mock' | 'smepay';
+export type PaymentProviderName = 'mock' | 'smepay' | 'bypass';
 export type PaymentStatus = 'pending' | 'successful' | 'failed';
 
 export const PLATFORM_ACCESS_AMOUNT_INR = 1000;

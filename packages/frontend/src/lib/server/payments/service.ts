@@ -110,12 +110,48 @@ export async function verifyLaunchAccessPayment(
   return storage.getWalletAccess(wallet);
 }
 
+// ---------------------------------------------------------------------------
+// Testnet creator-access bypass
+// ---------------------------------------------------------------------------
+// When DISABLE_CREATOR_ACCESS_GATE=true AND we are NOT on BSC Mainnet (56),
+// any wallet is treated as having launch access without payment. This exists
+// solely for BSC Testnet demos. On mainnet the bypass is hard-blocked.
+// ---------------------------------------------------------------------------
+
+const BSC_MAINNET_CHAIN_ID = 56;
+
+export function isCreatorAccessGateBypassed(): boolean {
+  const flag = (process.env.DISABLE_CREATOR_ACCESS_GATE || '').trim().toLowerCase();
+  if (flag !== 'true' && flag !== '1') return false;
+
+  // Safety: never allow bypass on mainnet regardless of flag.
+  const network = parseInt(process.env.NEXT_PUBLIC_NETWORK || '', 10);
+  if (network === BSC_MAINNET_CHAIN_ID) return false;
+
+  return true;
+}
+
 export async function getLaunchAccess(walletAddress: string, storage = getPaymentStorage()) {
   return getCreatorAccessStatus(walletAddress, storage);
 }
 
-export async function getCreatorAccessStatus(walletAddress: string, storage = getPaymentStorage()) {
-  return storage.getWalletAccess(normalizeWallet(walletAddress));
+export async function getCreatorAccessStatus(
+  walletAddress: string,
+  storage = getPaymentStorage(),
+): Promise<LaunchAccessRecord> {
+  const wallet = normalizeWallet(walletAddress);
+
+  // Testnet bypass — return a synthetic "granted" record.
+  if (isCreatorAccessGateBypassed()) {
+    return {
+      walletAddress: wallet,
+      hasLaunchAccess: true,
+      paymentProvider: 'bypass',
+      paidAt: undefined,
+    };
+  }
+
+  return storage.getWalletAccess(wallet);
 }
 
 export async function requireCreatorAccess(walletAddress: string, storage = getPaymentStorage()) {

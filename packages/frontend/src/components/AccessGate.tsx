@@ -40,31 +40,51 @@ export const AccessGate: React.FC<AccessGateProps> = ({
   if (access.unlocked) {
     return (
       <>
-        <div className="card mb-6 border-emerald-500/20 bg-emerald-500/[0.04]">
-          <div className="flex items-start gap-3">
-            <span className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
-              <Icon name="check" size={16} />
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-emerald-200">
-                {access.reason === 'exempt'
-                  ? 'Creator launch access approved — payment skipped for this wallet.'
-                  : 'Payment verified — creator launch access approved.'}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5 break-all font-mono">
-                {access.serverAddress}
-              </p>
+        {access.bypassActive && (
+          <div className="card mb-6 border-amber-500/20 bg-amber-500/[0.04]">
+            <div className="flex items-start gap-3">
+              <span className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-300 flex items-center justify-center shrink-0">
+                <Icon name="alert" size={16} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-amber-200">
+                  Testnet demo mode — creator access fee is disabled
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  The ₹1000 platform access fee is bypassed for BSC Testnet.
+                  This gate will be enforced on mainnet launch.
+                </p>
+              </div>
             </div>
-            <button
-              onClick={access.logout}
-              className="btn-ghost text-xs"
-              title="Sign out of this device"
-            >
-              <Icon name="close" size={14} />
-              Sign out
-            </button>
           </div>
-        </div>
+        )}
+        {!access.bypassActive && (
+          <div className="card mb-6 border-emerald-500/20 bg-emerald-500/[0.04]">
+            <div className="flex items-start gap-3">
+              <span className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
+                <Icon name="check" size={16} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-emerald-200">
+                  {access.reason === 'exempt'
+                    ? 'Creator launch access approved — payment skipped for this wallet.'
+                    : 'Payment verified — creator launch access approved.'}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5 break-all font-mono">
+                  {access.serverAddress}
+                </p>
+              </div>
+              <button
+                onClick={access.logout}
+                className="btn-ghost text-xs"
+                title="Sign out of this device"
+              >
+                <Icon name="close" size={14} />
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
         {children}
       </>
     );
